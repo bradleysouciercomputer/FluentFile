@@ -1,33 +1,39 @@
-# FluentFile — Browser-local file storage
+# FluentFile
 
-FluentFile is a static file organizer with a Microsoft Fluent 2-inspired interface. It runs on GitHub Pages and stores file contents in the browser using IndexedDB; it does not upload them to a cloud storage server.
+FluentFile is a browser-local file manager built with Microsoft's official **Fluent UI React v9** component library, used by Fluent 2 for React web experiences. Components are imported from `@fluentui/react-components` and the application is wrapped in `FluentProvider` with Fluent themes.
 
 ## Features
 
-- Upload multiple files or drag and drop them into the site.
-- Create, open, and rename folders.
-- Search files and folders, sort files, and switch between grid and list views.
-- Preview common images, PDFs, text files, audio, and video.
-- Favorite files, download individual files, and create ZIP backups.
-- Recycle bin with restore and permanent-delete actions.
-- Responsive layout and an automatic request for persistent browser storage where supported.
+- Upload files or drag-and-drop into the current folder.
+- Create nested folders; browse with breadcrumbs.
+- Search files and folders; sort by name, size, or modified date.
+- Grid and list layouts, file previews, and downloads.
+- Favorites, recycle bin, restore, and permanent delete.
+- ZIP backup and restore.
+- Light and dark themes, using official Fluent UI React components.
+- File contents are saved in the browser's IndexedDB. No file content is uploaded to a storage server.
+
+## Development
+
+Requires Node.js 20+.
+
+```sh
+npm install
+npm run dev
+```
 
 ## GitHub Pages
 
-The site is served directly from `index.html`. The workflow in `.github/workflows/pages.yml` publishes that page after each push to `main`, or when manually run. In repository settings, set **Settings → Pages → Build and deployment → Source** to **GitHub Actions**.
+The `.github/workflows/pages.yml` workflow runs `npm install`, builds with Vite, and deploys the generated `dist` directory on every push to `main`. In **Settings → Pages**, choose **GitHub Actions** as the deployment source.
 
-After the workflow succeeds, the project site URL is:
+Site: https://bradleysouciercomputer.github.io/FluentFile/
 
-https://bradleysouciercomputer.github.io/FluentFile/
+## Local storage notes
 
-## Storage and privacy
+Files are local to this browser profile and this site origin; they do not sync across devices. Clearing the site's browser data or storage eviction may remove them, so use ZIP backups regularly. Backup and restore uses JSZip as an app dependency.
 
-- Files are saved in IndexedDB for this browser profile and this site origin. They do not sync between devices or browsers.
-- The site itself is hosted by GitHub Pages, but file contents stay in the visitor's browser and are not uploaded by FluentFile.
-- Clearing the browser's site data, using another browser profile, or storage eviction can remove stored files. Create ZIP backups regularly.
-- Backup/restore uses JSZip from a public CDN and therefore needs an internet connection when that feature is used.
+## Official references
 
-## Design reference
-
-- [Microsoft Fluent 2 design system](https://fluent2.microsoft.design/)
-- [Fluent UI React documentation](https://react.fluentui.dev/)
+- [Fluent 2 — Start developing](https://fluent2.microsoft.design/get-started/develop)
+- [Fluent 2 React components](https://fluent2.microsoft.design/components/web/react/)
+- [Microsoft Fluent UI React repository](https://github.com/microsoft/fluentui)

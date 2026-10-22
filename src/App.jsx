@@ -145,7 +145,7 @@ const useStyles = makeStyles({
   toast:{position:"fixed",right:"20px",bottom:"20px",zIndex:1000,display:"flex",alignItems:"center",gap:"12px",maxWidth:"min(440px, calc(100vw - 40px))",padding:"8px 10px 8px 16px",backgroundColor:tokens.colorNeutralBackground1,border:"1px solid "+tokens.colorNeutralStroke1,borderRadius:tokens.borderRadiusLarge,boxShadow:tokens.shadow16}
 });
 
-function FileCard({file,layout,styles,onAction,onPreview}) {
+function FileCard({file,layout,styles,onAction,onPreview,onCopyLink}) {
   const [imageUrl,setImageUrl] = useState("");
   useEffect(() => {
     if (kind(file) !== "image") return;
@@ -173,6 +173,7 @@ function FileCard({file,layout,styles,onAction,onPreview}) {
         <Menu><MenuTrigger disableButtonEnhancement><Button appearance="subtle" icon={<MoreHorizontal24Regular/>} aria-label={"More options for "+file.name}/></MenuTrigger>
           <MenuPopover><MenuList>
             <MenuItem icon={<Open24Regular/>} onClick={() => onPreview(file)}>Preview</MenuItem>
+            <MenuItem onClick={() => onCopyLink("file",file)}>Copy file link</MenuItem>
             <MenuItem icon={<Rename24Regular/>} onClick={() => onAction("rename",file)}>Rename</MenuItem>
             <MenuItem icon={<Delete24Regular/>} onClick={() => onAction("trash",file)}>Move to recycle bin</MenuItem>
           </MenuList></MenuPopover>
@@ -206,6 +207,7 @@ function App() {
   const [notice,setNotice] = useState("");
   const inputRef = useRef(null);
   const restoreRef = useRef(null);
+  const searchRef = useRef(null);
   const toastTimer = useRef(null);
 
   const refresh = async () => {
@@ -219,7 +221,69 @@ function App() {
   };
   useEffect(()=>{refresh();},[]);
   useEffect(()=>()=>clearTimeout(toastTimer.current),[]);
+  useEffect(()=>{ if(previewUrl) return ()=>URL.revokeObjectURL(previewUrl); },[previewUrl]);
   const toast = message => {setNotice(message);clearTimeout(toastTimer.current);toastTimer.current=setTimeout(()=>setNotice(""),3500);};
+  const showPreview = async file => {
+    const url=URL.createObjectURL(file.blob);
+    setPreviewUrl(url);setPreviewFile(file);setPreviewText("");
+    if(kind(file)==="text"){
+      try{setPreviewText(file.size>1000000?"This file is too large to preview here. Download it to read the contents.":await file.blob.text());}
+      catch{setPreviewText("Could not read this preview.");}
+    }
+    setDialog("preview");
+  };
+  const syncRoute = async () => {
+    const raw=(window.location.hash||"").replace(/^#\\/?/,"");
+    if(!raw)return;
+    const parts=raw.split("/").filter(Boolean).map(part=>{try{return decodeURIComponent(part);}catch{return part;}});
+    try {
+      if(parts[0]==="file"&&parts[1]){
+        const all=await getAll("files"),file=all.find(item=>item.id===parts[1]);
+        if(!file){setView("files");setFolderId(null);setDialog(null);toast("This file link isn't available in this browser's local storage.");return;}
+        setView(isDeleted(file)?"trash":"files");setFolderId(file.folderId||null);setQuery("");
+        await showPreview(file);return;
+      }
+      if(parts[0]==="folder"&&parts[1]){
+        const all=await getAll("folders"),folder=all.find(item=>item.id===parts[1]);
+        if(!folder){setView("files");setFolderId(null);toast("This folder link is no longer available in this browser.");return;}
+        setView("files");setFolderId(folder.id);setQuery("");setDialog(null);return;
+      }
+      const next=["files","recent","favorites","trash"].includes(parts[0])?parts[0]:"files";
+      setView(next);setFolderId(null);setQuery("");setDialog(null);
+    } catch(error) { setStorageError(error.message||"Could not open this link."); }
+  };
+  const setRoute = path => {
+    const next="#/"+path;
+    if(window.location.hash===next) syncRoute();
+    else window.location.hash=next;
+  };
+  useEffect(()=>{
+    const onHashChange=()=>{syncRoute();};
+    window.addEventListener("hashchange",onHashChange);
+    if(window.location.hash) onHashChange();
+    return ()=>window.removeEventListener("hashchange",onHashChange);
+  },[]);
+  const copyLink = async (type,item) => {
+    const path=type==="folder"?"folder/"+encodeURIComponent(item.id):"file/"+encodeURIComponent(item.id);
+    const url=window.location.origin+window.location.pathname+"#/"+path;
+    try {
+      if(navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
+      else {
+        const temp=document.createElement("textarea");temp.value=url;temp.style.position="fixed";temp.style.opacity="0";
+        document.body.appendChild(temp);temp.select();const copied=document.execCommand("copy");temp.remove();
+        if(!copied)throw new Error("Clipboard permission was denied.");
+      }
+      toast("Link copied. It opens on this browser profile where the item is stored.");
+    } catch { toast("Could not copy the link. Check clipboard permissions."); }
+  };
+  useEffect(()=>{
+    const onKeyDown=event=>{
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="k"){event.preventDefault();searchRef.current?.focus();}
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="u"&&view==="files"){event.preventDefault();inputRef.current?.click();}
+    };
+    window.addEventListener("keydown",onKeyDown);
+    return ()=>window.removeEventListener("keydown",onKeyDown);
+  },[view]);
   const getFolder = id => folders.find(f=>f.id===id)||null;
   const folderLabel = id => getFolder(id)?.name || "My files";
   const liveFiles = files.filter(f=>!isDeleted(f));
@@ -246,7 +310,7 @@ function App() {
   else shownFiles.sort((a,b)=>b.modifiedAt-a.modifiedAt);
   if(view==="recent")shownFiles=shownFiles.slice(0,50);
 
-  const goView = name => {setView(name);setFolderId(null);setQuery("");};
+  const goView = name => {setQuery("");setRoute(name);};
   const openEditor = (type,target=null) => {setDialog(type);setDialogTarget(target);setDialogName(target?.name||"");setMoveTarget("root");};
   const closeDialog = () => {setDialog(null);setDialogTarget(null);setDialogName("");};
   const createFolder = async () => {
@@ -273,15 +337,16 @@ function App() {
     a.href=url;a.download=file.name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1200);
   };
   const preview = async file => {
-    if(previewUrl)URL.revokeObjectURL(previewUrl);
-    const url=URL.createObjectURL(file.blob);setPreviewUrl(url);setPreviewFile(file);setPreviewText("");
-    if(kind(file)==="text"){
-      try{setPreviewText(file.size>1000000?"This file is too large to preview here. Download it to read the contents.":await file.blob.text());}
-      catch{setPreviewText("Could not read this preview.");}
-    }
-    setDialog("preview");
+    const next="#/file/"+encodeURIComponent(file.id);
+    if(window.location.hash===next) await showPreview(file);
+    else window.location.hash=next;
   };
-  const closePreview = () => {if(previewUrl)URL.revokeObjectURL(previewUrl);setPreviewUrl("");setPreviewFile(null);setPreviewText("");setDialog(null);};
+  const closePreview = () => {
+    if(previewUrl)URL.revokeObjectURL(previewUrl);
+    setPreviewUrl("");setPreviewFile(null);setPreviewText("");setDialog(null);
+    const back=isDeleted(previewFile)?"trash":previewFile?.folderId?"folder/"+encodeURIComponent(previewFile.folderId):"files";
+    setRoute(back);
+  };
   const action = async (name,file) => {
     try {
       if(name==="favorite"){await write("files",{...file,favorite:!file.favorite});await refresh();if(previewFile?.id===file.id)setPreviewFile({...file,favorite:!file.favorite});toast(file.favorite?"Removed from favorites.":"Added to favorites.");}
@@ -319,7 +384,7 @@ function App() {
       await refresh();toast("Restored "+count+" file"+(count===1?"":"s")+" from backup.");
     } catch(e){toast("Could not restore this ZIP backup. "+(e.message||""));}
   };
-  const fileCard = f => <FileCard key={f.id} file={f} layout={layout} styles={s} onAction={action} onPreview={preview}/>;
+  const fileCard = f => <FileCard key={f.id} file={f} layout={layout} styles={s} onAction={action} onPreview={preview} onCopyLink={copyLink}/>;
   const title = view==="trash"?"Recycle bin":view==="favorites"?"Favorites":view==="recent"?"Recent":folderLabel(folderId);
   const subtitle = view==="trash"?"Restore deleted files or permanently remove them.":view==="favorites"?"Your starred files in one place.":view==="recent"?"Your most recently changed files.":"Organize files and folders stored in this browser.";
 
@@ -345,7 +410,7 @@ function App() {
       </aside>
       <main className={s.main}>
         <header className={s.topbar+" ff-topbar"}>
-          <SearchBox className={s.search} placeholder="Search files and folders" value={query} onChange={(_,data)=>setQuery(data.value)}/>
+          <SearchBox ref={searchRef} className={s.search} placeholder="Search files and folders (Ctrl+K)" value={query} onChange={(_,data)=>setQuery(data.value)}/>
           <div className={s.topRight}>
             <Text className={s.privacy}><ShieldCheckmark24Regular/><span className="ff-privacy-text">Stored locally</span></Text>
             <Button appearance="secondary" icon={<ArrowDownload24Regular/>} onClick={backup}>Backup</Button>
@@ -362,7 +427,7 @@ function App() {
           {view==="files"&&<div className={s.dropzone+" "+(dragging?s.dropDrag:"")} onDragOver={e=>{e.preventDefault();setDragging(true);}} onDragLeave={()=>setDragging(false)} onDrop={e=>{e.preventDefault();setDragging(false);addFiles(e.dataTransfer.files);}}>
             <div className={s.dropMark}><ArrowUpload24Regular fontSize={22}/></div><div className={s.dropCopy+" ff-drop-copy"}><Text weight="semibold">Drop files here</Text><Caption1>or use Upload files. Everything stays in this browser.</Caption1></div><Button appearance="subtle" onClick={()=>inputRef.current?.click()}>Browse files</Button>
           </div>}
-          {view==="files"&&<div className={s.breadcrumbs}><Button size="small" appearance="subtle" onClick={()=>{setFolderId(null);setQuery("");}}>My files</Button>{folderPath.map(f=><React.Fragment key={f.id}><ChevronRight12Regular/><Button size="small" appearance="subtle" onClick={()=>{setFolderId(f.id);setQuery("");}}>{f.name}</Button></React.Fragment>)}</div>}
+          {view==="files"&&<div className={s.breadcrumbs}><Button size="small" appearance="subtle" onClick={()=>{setQuery("");setRoute("files");}}>My files</Button>{folderPath.map(f=><React.Fragment key={f.id}><ChevronRight12Regular/><Button size="small" appearance="subtle" onClick={()=>{setQuery("");setRoute("folder/"+encodeURIComponent(f.id));}}>{f.name}</Button></React.Fragment>)}</div>}
           <div className={s.contentBar}><Text size={200}>{shownFolders.length} folder{shownFolders.length===1?"":"s"} · {shownFiles.length} file{shownFiles.length===1?"":"s"}</Text><div className={s.controls}>
             <Dropdown size="small" value={sortBy==="modified"?"Last modified":sortBy==="name"?"Name":"Size"} selectedOptions={[sortBy]} onOptionSelect={(_,data)=>setSortBy(data.optionValue||"modified")} aria-label="Sort files"><Option value="modified">Last modified</Option><Option value="name">Name</Option><Option value="size">Size</Option></Dropdown>
             <Toolbar aria-label="Display options"><ToolbarButton title="Grid view" aria-label="Grid view" icon={<Grid24Regular/>} appearance={layout==="grid"?"primary":"subtle"} onClick={()=>setLayout("grid")}/><ToolbarButton title="List view" aria-label="List view" icon={<AppsList24Regular/>} appearance={layout==="list"?"primary":"subtle"} onClick={()=>setLayout("list")}/></Toolbar>
@@ -370,8 +435,8 @@ function App() {
           {loading?<div className={s.empty}><Spinner label="Loading your files…"/></div>:<>
             <div className={s.sections}>
               {shownFolders.length>0&&<section className={s.section}><Title3 className={s.sectionTitle}>Folders</Title3><div className={s.folderGrid}>{shownFolders.map(folder=><Card key={folder.id} className={s.folderCard}>
-                <div className={s.folderMark}><Folder24Regular fontSize={24}/></div><Button appearance="subtle" className={s.itemInfo} onClick={()=>{setFolderId(folder.id);setQuery("");}}><Text weight="semibold" className={s.itemName}>{folder.name}</Text><Caption1>Folder</Caption1></Button>
-                <Menu><MenuTrigger disableButtonEnhancement><Button appearance="subtle" icon={<MoreHorizontal24Regular/>} aria-label={"Options for "+folder.name}/></MenuTrigger><MenuPopover><MenuList><MenuItem icon={<FolderOpen24Regular/>} onClick={()=>{setFolderId(folder.id);setQuery("");}}>Open</MenuItem><MenuItem icon={<Rename24Regular/>} onClick={()=>openEditor("rename-folder",folder)}>Rename</MenuItem></MenuList></MenuPopover></Menu>
+                <div className={s.folderMark}><Folder24Regular fontSize={24}/></div><Button appearance="subtle" className={s.itemInfo} onClick={()=>setRoute("folder/"+encodeURIComponent(folder.id))}><Text weight="semibold" className={s.itemName}>{folder.name}</Text><Caption1>Folder · Open folder link</Caption1></Button>
+                <Menu><MenuTrigger disableButtonEnhancement><Button appearance="subtle" icon={<MoreHorizontal24Regular/>} aria-label={"Options for "+folder.name}/></MenuTrigger><MenuPopover><MenuList><MenuItem icon={<FolderOpen24Regular/>} onClick={()=>setRoute("folder/"+encodeURIComponent(folder.id))}>Open</MenuItem><MenuItem onClick={()=>copyLink("folder",folder)}>Copy folder link</MenuItem><MenuItem icon={<Rename24Regular/>} onClick={()=>openEditor("rename-folder",folder)}>Rename</MenuItem></MenuList></MenuPopover></Menu>
               </Card>)}</div></section>}
               {shownFiles.length>0&&<section className={s.section}><Title3 className={s.sectionTitle}>{view==="trash"?"Deleted files":shownFolders.length?"Files":"All files"}</Title3><div className={(layout==="list"?s.fileGrid+" "+s.fileGridList:s.fileGrid)+" ff-file-grid"}>{shownFiles.map(fileCard)}</div></section>}
             </div>
@@ -408,7 +473,7 @@ function App() {
           {kind(previewFile)==="text"&&<pre className={s.previewText}>{previewText}</pre>}
           {kind(previewFile)==="file"&&<div style={{padding:36,display:"grid",justifyItems:"center",gap:12}}><Attach24Regular fontSize={42}/><Body1>No preview is available for this file type.</Body1></div>}
         </div>
-      </DialogContent><DialogActions><Button appearance="secondary" icon={<Star24Regular/>} onClick={()=>action("favorite",previewFile)}>{previewFile.favorite?"Remove favorite":"Add to favorites"}</Button><Button appearance="secondary" onClick={closePreview}>Close</Button><Button appearance="primary" icon={<ArrowDownload24Regular/>} onClick={()=>download(previewFile)}>Download</Button></DialogActions>
+      </DialogContent><DialogActions><Button appearance="secondary" onClick={()=>copyLink("file",previewFile)}>Copy file link</Button><Button appearance="secondary" icon={<Star24Regular/>} onClick={()=>action("favorite",previewFile)}>{previewFile.favorite?"Remove favorite":"Add to favorites"}</Button><Button appearance="secondary" onClick={closePreview}>Close</Button><Button appearance="primary" icon={<ArrowDownload24Regular/>} onClick={()=>download(previewFile)}>Download</Button></DialogActions>
     </DialogBody></DialogSurface></Dialog>}
     {notice&&<div className={s.toast} role="status"><Text>{notice}</Text><Button appearance="subtle" size="small" icon={<Dismiss24Regular/>} aria-label="Dismiss notification" onClick={()=>setNotice("")}/></div>}
   </FluentProvider>;

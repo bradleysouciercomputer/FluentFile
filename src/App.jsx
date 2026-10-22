@@ -174,6 +174,7 @@ function FileCard({file,layout,styles,onAction,onPreview,onCopyLink}) {
           <MenuPopover><MenuList>
             <MenuItem icon={<Open24Regular/>} onClick={() => onPreview(file)}>Preview</MenuItem>
             <MenuItem onClick={() => onCopyLink("file",file)}>Copy file link</MenuItem>
+            <MenuItem icon={<Document24Regular/>} onClick={() => onAction("duplicate",file)}>Make a copy</MenuItem>
             <MenuItem icon={<Rename24Regular/>} onClick={() => onAction("rename",file)}>Rename</MenuItem>
             <MenuItem icon={<Delete24Regular/>} onClick={() => onAction("trash",file)}>Move to recycle bin</MenuItem>
           </MenuList></MenuPopover>
@@ -233,7 +234,7 @@ function App() {
     setDialog("preview");
   };
   const syncRoute = async () => {
-    const raw=(window.location.hash||"").replace(/^#\\/?/,"");
+    const raw=(window.location.hash||"").startsWith("#/")?window.location.hash.slice(2):"";
     if(!raw)return;
     const parts=raw.split("/").filter(Boolean).map(part=>{try{return decodeURIComponent(part);}catch{return part;}});
     try {
@@ -349,6 +350,13 @@ function App() {
   };
   const action = async (name,file) => {
     try {
+      if(name==="duplicate"){
+        let newName="Copy of "+file.name;
+        const used=new Set(files.filter(f=>f.folderId===file.folderId&&!isDeleted(f)).map(f=>f.name.toLocaleLowerCase()));
+        if(used.has(newName.toLocaleLowerCase())){let index=2;while(used.has("Copy ("+index+") of "+file.name.toLocaleLowerCase()))index++;newName="Copy ("+index+") of "+file.name;}
+        await write("files",{...file,id:uid(),name:newName,createdAt:Date.now(),modifiedAt:Date.now(),favorite:false,deletedAt:null});
+        await refresh();toast("Created a copy of "+file.name+".");
+      }
       if(name==="favorite"){await write("files",{...file,favorite:!file.favorite});await refresh();if(previewFile?.id===file.id)setPreviewFile({...file,favorite:!file.favorite});toast(file.favorite?"Removed from favorites.":"Added to favorites.");}
       if(name==="download")download(file);
       if(name==="preview")preview(file);
@@ -358,6 +366,20 @@ function App() {
       if(name==="rename")openEditor("rename-file",file);
       if(name==="move")openEditor("move",file);
     } catch(e){toast(e.message||"The action could not be completed.");}
+  };
+  const downloadFolderZip = async folder => {
+    try {
+      const JSZip=(await import("jszip")).default,zip=new JSZip();
+      const descendants=new Set([folder.id]);let changed=true;
+      while(changed){changed=false;for(const item of folders){if(item.parentId&&descendants.has(item.parentId)&&!descendants.has(item.id)){descendants.add(item.id);changed=true;}}}
+      const getPath=id=>{const parts=[],pathSeen=new Set();let current=id?getFolder(id):null;while(current&&!pathSeen.has(current.id)){parts.unshift(current.name);pathSeen.add(current.id);current=current.parentId?getFolder(current.parentId):null;}return parts;};
+      folders.filter(f=>descendants.has(f.id)).forEach(f=>zip.folder(getPath(f.id).join("/")));
+      const contained=liveFiles.filter(file=>descendants.has(file.folderId));
+      contained.forEach(file=>zip.file(getPath(file.folderId).concat(file.name).join("/"),file.blob));
+      const blob=await zip.generateAsync({type:"blob"}),url=URL.createObjectURL(blob),a=document.createElement("a");
+      a.href=url;a.download=folder.name.replace(/[\\/:*?"<>|]/g,"_")+".zip";a.click();setTimeout(()=>URL.revokeObjectURL(url),1200);
+      toast("Folder ZIP prepared ("+contained.length+" files).");
+    } catch(error){toast("Could not create folder ZIP. "+(error.message||"Try again."));}
   };
   const backup = async () => {
     try {
@@ -436,7 +458,7 @@ function App() {
             <div className={s.sections}>
               {shownFolders.length>0&&<section className={s.section}><Title3 className={s.sectionTitle}>Folders</Title3><div className={s.folderGrid}>{shownFolders.map(folder=><Card key={folder.id} className={s.folderCard}>
                 <div className={s.folderMark}><Folder24Regular fontSize={24}/></div><Button appearance="subtle" className={s.itemInfo} onClick={()=>setRoute("folder/"+encodeURIComponent(folder.id))}><Text weight="semibold" className={s.itemName}>{folder.name}</Text><Caption1>Folder · Open folder link</Caption1></Button>
-                <Menu><MenuTrigger disableButtonEnhancement><Button appearance="subtle" icon={<MoreHorizontal24Regular/>} aria-label={"Options for "+folder.name}/></MenuTrigger><MenuPopover><MenuList><MenuItem icon={<FolderOpen24Regular/>} onClick={()=>setRoute("folder/"+encodeURIComponent(folder.id))}>Open</MenuItem><MenuItem onClick={()=>copyLink("folder",folder)}>Copy folder link</MenuItem><MenuItem icon={<Rename24Regular/>} onClick={()=>openEditor("rename-folder",folder)}>Rename</MenuItem></MenuList></MenuPopover></Menu>
+                <Menu><MenuTrigger disableButtonEnhancement><Button appearance="subtle" icon={<MoreHorizontal24Regular/>} aria-label={"Options for "+folder.name}/></MenuTrigger><MenuPopover><MenuList><MenuItem icon={<FolderOpen24Regular/>} onClick={()=>setRoute("folder/"+encodeURIComponent(folder.id))}>Open</MenuItem><MenuItem onClick={()=>copyLink("folder",folder)}>Copy folder link</MenuItem><MenuItem onClick={()=>downloadFolderZip(folder)}>Download folder as ZIP</MenuItem><MenuItem icon={<Rename24Regular/>} onClick={()=>openEditor("rename-folder",folder)}>Rename</MenuItem></MenuList></MenuPopover></Menu>
               </Card>)}</div></section>}
               {shownFiles.length>0&&<section className={s.section}><Title3 className={s.sectionTitle}>{view==="trash"?"Deleted files":shownFolders.length?"Files":"All files"}</Title3><div className={(layout==="list"?s.fileGrid+" "+s.fileGridList:s.fileGrid)+" ff-file-grid"}>{shownFiles.map(fileCard)}</div></section>}
             </div>

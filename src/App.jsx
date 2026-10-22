@@ -240,17 +240,17 @@ function App() {
     try {
       if(parts[0]==="file"&&parts[1]){
         const all=await getAll("files"),file=all.find(item=>item.id===parts[1]);
-        if(!file){setView("files");setFolderId(null);setDialog(null);toast("This file link isn't available in this browser's local storage.");return;}
+        if(!file){setView("files");setFolderId(null);setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");toast("This file link isn't available in this browser's local storage.");return;}
         setView(isDeleted(file)?"trash":"files");setFolderId(file.folderId||null);setQuery("");
         await showPreview(file);return;
       }
       if(parts[0]==="folder"&&parts[1]){
         const all=await getAll("folders"),folder=all.find(item=>item.id===parts[1]);
-        if(!folder){setView("files");setFolderId(null);toast("This folder link is no longer available in this browser.");return;}
-        setView("files");setFolderId(folder.id);setQuery("");setDialog(null);return;
+        if(!folder){setView("files");setFolderId(null);setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");toast("This folder link is no longer available in this browser.");return;}
+        setView("files");setFolderId(folder.id);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");return;
       }
       const next=["files","recent","favorites","trash"].includes(parts[0])?parts[0]:"files";
-      setView(next);setFolderId(null);setQuery("");setDialog(null);
+      setView(next);setFolderId(null);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");
     } catch(error) { setStorageError(error.message||"Could not open this link."); }
   };
   const setRoute = path => {
@@ -343,7 +343,6 @@ function App() {
     else window.location.hash=next;
   };
   const closePreview = () => {
-    if(previewUrl)URL.revokeObjectURL(previewUrl);
     setPreviewUrl("");setPreviewFile(null);setPreviewText("");setDialog(null);
     const back=isDeleted(previewFile)?"trash":previewFile?.folderId?"folder/"+encodeURIComponent(previewFile.folderId):"files";
     setRoute(back);

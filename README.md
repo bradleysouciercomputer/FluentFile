@@ -11,7 +11,7 @@ FluentFile is a browser-local file manager built with Microsoft's official **Flu
 - Favorites, recycle bin, restore, and permanent delete.
 - ZIP backup/restore and download-as-ZIP for individual folders.
 - Copyable deep links for folders and files, plus browser back/forward support. Links resolve from the site's URL fragment.
-- Duplicate files, light/dark themes, and keyboard shortcuts (Ctrl/⌘+K for search, Ctrl/⌘+U to upload).
+- Duplicate files, light/dark themes, and keyboard shortcuts (Ctrl/⌘+K for search, Ctrl/⌘+Shift+U to upload).
 - File contents are saved in the browser's IndexedDB. No file content is uploaded to a storage server.
 
 ## Development

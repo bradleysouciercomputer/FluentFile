@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  build-and-deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -23,20 +23,20 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install
+      - name: Build FluentFile
+        run: npm run build
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
-
-      - name: Prepare static site
-        run: |
-          mkdir -p site
-          cp index.html site/index.html
-
-      - name: Upload Pages artifact
+      - name: Upload build artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: site
-
+          path: dist
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

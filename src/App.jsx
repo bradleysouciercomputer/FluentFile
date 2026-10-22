@@ -280,7 +280,7 @@ function App() {
   useEffect(()=>{
     const onKeyDown=event=>{
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="k"){event.preventDefault();searchRef.current?.focus();}
-      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="u"&&view==="files"){event.preventDefault();inputRef.current?.click();}
+      if((event.ctrlKey||event.metaKey)&&event.shiftKey&&event.key.toLowerCase()==="u"&&view==="files"){event.preventDefault();inputRef.current?.click();}
     };
     window.addEventListener("keydown",onKeyDown);
     return ()=>window.removeEventListener("keydown",onKeyDown);

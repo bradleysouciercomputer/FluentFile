@@ -154,7 +154,7 @@ function FileCard({file,layout,styles,onAction,onPreview}) {
     return () => URL.revokeObjectURL(url);
   }, [file.id,file.blob]);
   return <Card className={layout === "list" ? styles.fileCard+" "+styles.fileCardList : styles.fileCard}>
-    <div className={layout === "list" ? styles.filePreview+" "+styles.filePreviewList : styles.filePreview} role="button" tabIndex={0} aria-label={"Preview "+file.name} onClick={() => onPreview(file)} onKeyDown={e => {if(e.key==="Enter")onPreview(file);}}>
+    <div className={(layout === "list" ? styles.filePreview+" "+styles.filePreviewList+" ff-file-preview ff-file-preview-list" : styles.filePreview+" ff-file-preview") } role="button" tabIndex={0} aria-label={"Preview "+file.name} onClick={() => onPreview(file)} onKeyDown={e => {if(e.key==="Enter")onPreview(file);}}>
       {imageUrl ? <img className={styles.thumbnail} src={imageUrl} alt="" /> : React.cloneElement(iconFor(file),{fontSize:32})}
     </div>
     <div className={styles.fileBody}>
@@ -373,7 +373,7 @@ function App() {
                 <div className={s.folderMark}><Folder24Regular fontSize={24}/></div><Button appearance="subtle" className={s.itemInfo} onClick={()=>{setFolderId(folder.id);setQuery("");}}><Text weight="semibold" className={s.itemName}>{folder.name}</Text><Caption1>Folder</Caption1></Button>
                 <Menu><MenuTrigger disableButtonEnhancement><Button appearance="subtle" icon={<MoreHorizontal24Regular/>} aria-label={"Options for "+folder.name}/></MenuTrigger><MenuPopover><MenuList><MenuItem icon={<FolderOpen24Regular/>} onClick={()=>{setFolderId(folder.id);setQuery("");}}>Open</MenuItem><MenuItem icon={<Rename24Regular/>} onClick={()=>openEditor("rename-folder",folder)}>Rename</MenuItem></MenuList></MenuPopover></Menu>
               </Card>)}</div></section>}
-              {shownFiles.length>0&&<section className={s.section}><Title3 className={s.sectionTitle}>{view==="trash"?"Deleted files":shownFolders.length?"Files":"All files"}</Title3><div className={layout==="list"?s.fileGrid+" "+s.fileGridList:s.fileGrid}>{shownFiles.map(fileCard)}</div></section>}
+              {shownFiles.length>0&&<section className={s.section}><Title3 className={s.sectionTitle}>{view==="trash"?"Deleted files":shownFolders.length?"Files":"All files"}</Title3><div className={(layout==="list"?s.fileGrid+" "+s.fileGridList:s.fileGrid)+" ff-file-grid"}>{shownFiles.map(fileCard)}</div></section>}
             </div>
             {!shownFolders.length&&!shownFiles.length&&<div className={s.empty}><div className={s.emptyMark}>{view==="trash"?<Delete24Regular fontSize={30}/>:view==="favorites"?<Star24Regular fontSize={30}/>:<FolderOpen24Regular fontSize={30}/>}</div>
               <Title3>{query?"No matches found":view==="trash"?"Recycle bin is empty":view==="favorites"?"No favorites yet":view==="recent"?"No recent files":"Start with your first file"}</Title3>

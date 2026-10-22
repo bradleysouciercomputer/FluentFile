@@ -11,7 +11,7 @@ import {
   Folder24Regular, FolderOpen24Regular, Home24Regular, Clock24Regular,
   Star24Regular, Delete24Regular, ArrowUpload24Regular, ArrowDownload24Regular,
   MoreHorizontal24Regular, Grid24Regular, AppsList24Regular, Document24Regular,
-  Image24Regular, VideoClip24Regular, MusicNote2_24Regular, ArrowUndo24Regular,
+  Image24Regular, VideoClip24Regular, ArrowUndo24Regular,
   Rename24Regular, Dismiss24Regular, ShieldCheckmark24Regular, FolderAdd24Regular,
   ChevronRight12Regular, ArrowMove24Regular, DocumentPdf24Regular, Attach24Regular,
   Open24Regular
@@ -80,7 +80,7 @@ const iconFor = file => {
   switch (kind(file)) {
     case "image": return <Image24Regular />;
     case "video": return <VideoClip24Regular />;
-    case "audio": return <MusicNote2_24Regular />;
+    case "audio": return <Document24Regular />;
     case "pdf": return <DocumentPdf24Regular />;
     case "file": return <Attach24Regular />;
     default: return <Document24Regular />;

@@ -289,6 +289,16 @@ function App() {
   },[view]);
   const getFolder = id => folders.find(f=>f.id===id)||null;
   const folderLabel = id => getFolder(id)?.name || "My files";
+  const folderPathLabel = id => {
+    const parts=[],seen=new Set();let current=id?getFolder(id):null;
+    while(current&&!seen.has(current.id)){parts.unshift(current.name);seen.add(current.id);current=current.parentId?getFolder(current.parentId):null;}
+    return parts.join(" / ")||"My files";
+  };
+  const folderDescendants = rootId => {
+    const descendants=new Set([rootId]);let changed=true;
+    while(changed){changed=false;for(const item of folders){if(item.parentId&&descendants.has(item.parentId)&&!descendants.has(item.id)){descendants.add(item.id);changed=true;}}}
+    return descendants;
+  };
   const liveFiles = files.filter(f=>!isDeleted(f));
   const trashFiles = files.filter(isDeleted);
   const favCount = liveFiles.filter(f=>f.favorite).length;
@@ -324,7 +334,7 @@ function App() {
   const toggleShownSelection=()=>setSelectedIds(ids=>allShownSelected?ids.filter(id=>!shownFiles.some(f=>f.id===id)):Array.from(new Set([...ids,...shownFiles.map(f=>f.id)])));
 
   const goView = name => {setSelectedIds([]);setFileFilter("all");setQuery("");setRoute(name);};
-  const openEditor = (type,target=null) => {setDialog(type);setDialogTarget(target);setDialogName(target?.name||"");setMoveTarget("root");};
+  const openEditor = (type,target=null) => {setDialog(type);setDialogTarget(target);setDialogName(target?.name||"");setMoveTarget(type==="move"&&target?.folderId?target.folderId:"root");};
   const closeDialog = () => {setDialog(null);setDialogTarget(null);setDialogName("");};
   const createFolder = async () => {
     if(!dialogName.trim())return;
@@ -359,12 +369,31 @@ function App() {
     const back=isDeleted(previewFile)?"trash":previewFile?.folderId?"folder/"+encodeURIComponent(previewFile.folderId):"files";
     setRoute(back);
   };
+  const moveFolder = async () => {
+    if(!dialogTarget)return;
+    if(moveTarget!=="root"&&folderDescendants(dialogTarget.id).has(moveTarget)){toast("A folder cannot be moved inside itself or one of its subfolders.");return;}
+    try {
+      await write("folders",{...dialogTarget,parentId:moveTarget==="root"?null:moveTarget});
+      closeDialog();await refresh();toast("Folder moved.");
+    } catch(error){toast(error.message||"Could not move folder.");}
+  };
+  const deleteEmptyFolder = async folder => {
+    const hasFiles=files.some(file=>file.folderId===folder.id);
+    const hasFolders=folders.some(child=>child.parentId===folder.id);
+    if(hasFiles||hasFolders){toast("This folder isn't empty. Move or remove its contents before deleting it.");return;}
+    if(!window.confirm('Delete empty folder "'+folder.name+'"?'))return;
+    try {
+      await remove("folders",folder.id);
+      if(folderId===folder.id)setFolderId(folder.parentId||null);
+      await refresh();toast("Folder deleted.");
+    } catch(error){toast(error.message||"Could not delete folder.");}
+  };
   const action = async (name,file) => {
     try {
       if(name==="duplicate"){
-        let newName="Copy of "+file.name;
         const used=new Set(files.filter(f=>f.folderId===file.folderId&&!isDeleted(f)).map(f=>f.name.toLocaleLowerCase()));
-        if(used.has(newName.toLocaleLowerCase())){let index=2;while(used.has("Copy ("+index+") of "+file.name.toLocaleLowerCase()))index++;newName="Copy ("+index+") of "+file.name;}
+        let newName="Copy of "+file.name,index=2;
+        while(used.has(newName.toLocaleLowerCase())){newName="Copy ("+index+") of "+file.name;index++;}
         await write("files",{...file,id:uid(),name:newName,createdAt:Date.now(),modifiedAt:Date.now(),favorite:false,deletedAt:null});
         await refresh();toast("Created a copy of "+file.name+".");
       }
@@ -376,6 +405,8 @@ function App() {
       if(name==="delete"&&window.confirm('Permanently delete "'+file.name+'"? This cannot be undone.')){await remove("files",file.id);await refresh();toast("File permanently deleted.");}
       if(name==="rename")openEditor("rename-file",file);
       if(name==="move")openEditor("move",file);
+      if(name==="move-folder")openEditor("move-folder",file);
+      if(name==="delete-folder")await deleteEmptyFolder(file);
     } catch(e){toast(e.message||"The action could not be completed.");}
   };
   const downloadFolderZip = async folder => {
@@ -418,6 +449,38 @@ function App() {
     } catch(e){toast("Could not restore this ZIP backup. "+(e.message||""));}
   };
   const fileCard = f => <FileCard key={f.id} file={f} layout={layout} styles={s} onAction={action} onPreview={preview} onCopyLink={copyLink} selected={selectedIds.includes(f.id)} onSelect={toggleSelected}/>;
+  const bulkAction = async mode => {
+    const targets=selectedFiles;
+    if(!targets.length)return;
+    try {
+      if(mode==="trash"){
+        for(const file of targets.filter(f=>!isDeleted(f)))await write("files",{...file,deletedAt:Date.now()});
+        toast("Moved "+targets.length+" file(s) to the recycle bin.");
+      } else if(mode==="restore"){
+        for(const file of targets.filter(isDeleted))await write("files",{...file,deletedAt:null});
+        toast("Restored "+targets.length+" file(s).");
+      } else if(mode==="delete"){
+        if(!window.confirm("Permanently delete "+targets.length+" selected file(s)? This cannot be undone."))return;
+        for(const file of targets)await remove("files",file.id);
+        toast("Permanently deleted "+targets.length+" file(s).");
+      } else if(mode==="favorite"){
+        for(const file of targets.filter(f=>!isDeleted(f)))await write("files",{...file,favorite:true});
+        toast("Added selected file(s) to favorites.");
+      } else if(mode==="download"){
+        const JSZip=(await import("jszip")).default,zip=new JSZip();
+        const pathFor=id=>{const parts=[],seen=new Set();let folder=id?getFolder(id):null;while(folder&&!seen.has(folder.id)){parts.unshift(folder.name);seen.add(folder.id);folder=folder.parentId?getFolder(folder.parentId):null;}return parts;};
+        targets.filter(f=>!isDeleted(f)).forEach(file=>zip.file(pathFor(file.folderId).concat(file.name).join("/"),file.blob));
+        const blob=await zip.generateAsync({type:"blob"}),url=URL.createObjectURL(blob),a=document.createElement("a");
+        a.href=url;a.download="FluentFile-selected-files.zip";a.click();setTimeout(()=>URL.revokeObjectURL(url),1200);
+        toast("ZIP containing selected files is ready.");
+      }
+      setSelectedIds([]);await refresh();
+    } catch(error){toast(error.message||"The bulk action could not be completed.");}
+  };
+  const moveFolderOptions = (() => {
+    const blocked=dialog==="move-folder"&&dialogTarget?folderDescendants(dialogTarget.id):new Set();
+    return folders.filter(folder=>!blocked.has(folder.id));
+  })();
   const title = view==="trash"?"Recycle bin":view==="favorites"?"Favorites":view==="recent"?"Recent":folderLabel(folderId);
   const subtitle = view==="trash"?"Restore deleted files or permanently remove them.":view==="favorites"?"Your starred files in one place.":view==="recent"?"Your most recently changed files.":"Organize files and folders stored in this browser.";
 
@@ -469,7 +532,7 @@ function App() {
             <div className={s.sections}>
               {shownFolders.length>0&&<section className={s.section}><Title3 className={s.sectionTitle}>Folders</Title3><div className={s.folderGrid}>{shownFolders.map(folder=><Card key={folder.id} className={s.folderCard}>
                 <div className={s.folderMark}><Folder24Regular fontSize={24}/></div><Button appearance="subtle" className={s.itemInfo} onClick={()=>setRoute("folder/"+encodeURIComponent(folder.id))}><Text weight="semibold" className={s.itemName}>{folder.name}</Text><Caption1>Folder · Open folder link</Caption1></Button>
-                <Menu><MenuTrigger disableButtonEnhancement><Button appearance="subtle" icon={<MoreHorizontal24Regular/>} aria-label={"Options for "+folder.name}/></MenuTrigger><MenuPopover><MenuList><MenuItem icon={<FolderOpen24Regular/>} onClick={()=>setRoute("folder/"+encodeURIComponent(folder.id))}>Open</MenuItem><MenuItem onClick={()=>copyLink("folder",folder)}>Copy folder link</MenuItem><MenuItem onClick={()=>downloadFolderZip(folder)}>Download folder as ZIP</MenuItem><MenuItem icon={<Rename24Regular/>} onClick={()=>openEditor("rename-folder",folder)}>Rename</MenuItem></MenuList></MenuPopover></Menu>
+                <Menu><MenuTrigger disableButtonEnhancement><Button appearance="subtle" icon={<MoreHorizontal24Regular/>} aria-label={"Options for "+folder.name}/></MenuTrigger><MenuPopover><MenuList><MenuItem icon={<FolderOpen24Regular/>} onClick={()=>setRoute("folder/"+encodeURIComponent(folder.id))}>Open</MenuItem><MenuItem onClick={()=>copyLink("folder",folder)}>Copy folder link</MenuItem><MenuItem onClick={()=>downloadFolderZip(folder)}>Download folder as ZIP</MenuItem><MenuItem icon={<ArrowMove24Regular/>} onClick={()=>openEditor("move-folder",folder)}>Move folder</MenuItem><MenuItem icon={<Rename24Regular/>} onClick={()=>openEditor("rename-folder",folder)}>Rename</MenuItem><MenuItem icon={<Delete24Regular/>} onClick={()=>action("delete-folder",folder)}>Delete empty folder</MenuItem></MenuList></MenuPopover></Menu>
               </Card>)}</div></section>}
               {shownFiles.length>0&&<section className={s.section}><Title3 className={s.sectionTitle}>{view==="trash"?"Deleted files":shownFolders.length?"Files":"All files"}</Title3><div className={(layout==="list"?s.fileGrid+" "+s.fileGridList:s.fileGrid)+" ff-file-grid"}>{shownFiles.map(fileCard)}</div></section>}
             </div>
@@ -486,12 +549,12 @@ function App() {
     </div>
 
     {dialog&&dialog!=="preview"&&<Dialog open onOpenChange={(_,data)=>{if(!data.open)closeDialog();}}>
-      <DialogSurface><DialogBody><DialogTitle>{dialog==="new-folder"?"Create a folder":dialog==="rename-folder"?"Rename folder":dialog==="rename-file"?"Rename file":"Move file"}</DialogTitle>
+      <DialogSurface><DialogBody><DialogTitle>{dialog==="new-folder"?"Create a folder":dialog==="rename-folder"?"Rename folder":dialog==="rename-file"?"Rename file":dialog==="move-folder"?"Move folder":"Move file"}</DialogTitle>
         <DialogContent>
           {(dialog==="new-folder"||dialog==="rename-folder"||dialog==="rename-file")&&<Field label={dialog==="new-folder"?"Folder name":"Name"} required><Input autoFocus value={dialogName} onChange={(_,data)=>setDialogName(data.value)} onKeyDown={e=>{if(e.key==="Enter")(dialog==="new-folder"?createFolder():rename());}}/></Field>}
-          {dialog==="move"&&<Field label="Destination folder"><Dropdown value={moveTarget==="root"?"My files (root)":folderLabel(moveTarget)} selectedOptions={[moveTarget]} onOptionSelect={(_,data)=>setMoveTarget(data.optionValue||"root")}><Option value="root">My files (root)</Option>{folders.filter(f=>f.id!==dialogTarget?.folderId).map(f=><Option key={f.id} value={f.id}>{f.name}</Option>)}</Dropdown><Caption1>Files remain in this browser; only their folder changes.</Caption1></Field>}
+          {(dialog==="move"||dialog==="move-folder")&&<Field label="Destination folder"><Dropdown value={moveTarget==="root"?"My files (root)":folderLabel(moveTarget)} selectedOptions={[moveTarget]} onOptionSelect={(_,data)=>setMoveTarget(data.optionValue||"root")}><Option value="root">My files (root)</Option>{(dialog==="move-folder"?moveFolderOptions:folders).map(f=><Option key={f.id} value={f.id}>{folderPathLabel(f.id)}</Option>)}</Dropdown><Caption1>{dialog==="move-folder"?"Choose a new parent folder. Moving into this folder or a descendant is not allowed.":"Files remain in this browser; only their folder changes."}</Caption1></Field>}
         </DialogContent>
-        <DialogActions><Button appearance="secondary" onClick={closeDialog}>Cancel</Button><Button appearance="primary" disabled={dialog!=="move"&&!dialogName.trim()} onClick={dialog==="new-folder"?createFolder:dialog==="move"?async()=>{const dest=moveTarget==="root"?null:getFolder(moveTarget);await write("files",{...dialogTarget,folderId:dest?.id||null,modifiedAt:Date.now()});closeDialog();await refresh();toast("File moved.");}:rename}>{dialog==="new-folder"?"Create":dialog==="move"?"Move":"Save"}</Button></DialogActions>
+        <DialogActions><Button appearance="secondary" onClick={closeDialog}>Cancel</Button><Button appearance="primary" disabled={dialog!=="move"&&!dialogName.trim()} onClick={dialog==="new-folder"?createFolder:dialog==="move"?async()=>{const dest=moveTarget==="root"?null:getFolder(moveTarget);await write("files",{...dialogTarget,folderId:dest?.id||null,modifiedAt:Date.now()});closeDialog();await refresh();toast("File moved.");}:dialog==="move-folder"?moveFolder:rename}>{dialog==="new-folder"?"Create":dialog==="move"||dialog==="move-folder"?"Move":"Save"}</Button></DialogActions>
       </DialogBody></DialogSurface>
     </Dialog>}
 

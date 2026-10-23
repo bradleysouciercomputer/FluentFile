@@ -236,6 +236,7 @@ function App() {
     setDialog("preview");
   };
   const syncRoute = async () => {
+    setSelectedIds([]);
     const raw=(window.location.hash||"").startsWith("#/")?window.location.hash.slice(2):"";
     if(!raw)return;
     const parts=raw.split("/").filter(Boolean).map(part=>{try{return decodeURIComponent(part);}catch{return part;}});
@@ -525,9 +526,25 @@ function App() {
           </div>}
           {view==="files"&&<div className={s.breadcrumbs}><Button size="small" appearance="subtle" onClick={()=>{setQuery("");setRoute("files");}}>My files</Button>{folderPath.map(f=><React.Fragment key={f.id}><ChevronRight12Regular/><Button size="small" appearance="subtle" onClick={()=>{setQuery("");setRoute("folder/"+encodeURIComponent(f.id));}}>{f.name}</Button></React.Fragment>)}</div>}
           <div className={s.contentBar}><Text size={200}>{shownFolders.length} folder{shownFolders.length===1?"":"s"} · {shownFiles.length} file{shownFiles.length===1?"":"s"}</Text><div className={s.controls}>
+            <Dropdown size="small" value={fileFilter==="all"?"All types":fileFilter==="image"?"Images":fileFilter==="documents"?"Documents":fileFilter==="video"?"Videos":fileFilter==="audio"?"Audio":"Other files"} selectedOptions={[fileFilter]} onOptionSelect={(_,data)=>{setSelectedIds([]);setFileFilter(data.optionValue||"all");}} aria-label="Filter by file type"><Option value="all">All types</Option><Option value="image">Images</Option><Option value="documents">Documents</Option><Option value="video">Videos</Option><Option value="audio">Audio</Option><Option value="other">Other files</Option></Dropdown>
             <Dropdown size="small" value={sortBy==="modified"?"Last modified":sortBy==="name"?"Name":"Size"} selectedOptions={[sortBy]} onOptionSelect={(_,data)=>setSortBy(data.optionValue||"modified")} aria-label="Sort files"><Option value="modified">Last modified</Option><Option value="name">Name</Option><Option value="size">Size</Option></Dropdown>
             <Toolbar aria-label="Display options"><ToolbarButton title="Grid view" aria-label="Grid view" icon={<Grid24Regular/>} appearance={layout==="grid"?"primary":"subtle"} onClick={()=>setLayout("grid")}/><ToolbarButton title="List view" aria-label="List view" icon={<AppsList24Regular/>} appearance={layout==="list"?"primary":"subtle"} onClick={()=>setLayout("list")}/></Toolbar>
           </div></div>
+          {selectedIds.length>0&&<div className={s.contentBar}>
+            <Checkbox checked={allShownSelected} onChange={toggleShownSelection} label={"Select all visible ("+shownFiles.length+")"}/>
+            <Text weight="semibold" size={200}>{selectedFiles.length} selected</Text>
+            <div className={s.controls}>
+              {view==="trash"?<>
+                <Button size="small" appearance="secondary" icon={<ArrowUndo24Regular/>} onClick={()=>bulkAction("restore")}>Restore</Button>
+                <Button size="small" appearance="secondary" icon={<Delete24Regular/>} onClick={()=>bulkAction("delete")}>Delete permanently</Button>
+              </>:<>
+                <Button size="small" appearance="secondary" icon={<Star24Regular/>} onClick={()=>bulkAction("favorite")}>Favorite</Button>
+                <Button size="small" appearance="secondary" icon={<ArrowDownload24Regular/>} onClick={()=>bulkAction("download")}>Download ZIP</Button>
+                <Button size="small" appearance="secondary" icon={<Delete24Regular/>} onClick={()=>bulkAction("trash")}>Move to recycle bin</Button>
+              </>}
+              <Button size="small" appearance="subtle" icon={<Dismiss24Regular/>} onClick={()=>setSelectedIds([])}>Clear selection</Button>
+            </div>
+          </div>}
           {loading?<div className={s.empty}><Spinner label="Loading your files…"/></div>:<>
             <div className={s.sections}>
               {shownFolders.length>0&&<section className={s.section}><Title3 className={s.sectionTitle}>Folders</Title3><div className={s.folderGrid}>{shownFolders.map(folder=><Card key={folder.id} className={s.folderCard}>

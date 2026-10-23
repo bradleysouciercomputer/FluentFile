@@ -192,7 +192,7 @@ function FileCard({file,layout,styles,onAction,onPreview,onCopyLink,selected,onS
   </Card>;
 }
 
-function FluentDocEditor({fileId, dark, onBack, onCopyLink}) {
+function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
   const docStyles = makeStyles({
     shell:{minHeight:"100vh",display:"flex",flexDirection:"column",backgroundColor:tokens.colorNeutralBackground2,color:tokens.colorNeutralForeground1},
     header:{display:"flex",alignItems:"center",gap:"12px",flexWrap:"wrap",padding:"12px 22px",backgroundColor:tokens.colorNeutralBackground1,borderBottom:"1px solid "+tokens.colorNeutralStroke2},
@@ -252,15 +252,25 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink}) {
     try{
       await write("files",updated);
       recordRef.current=updated;setRecord(updated);
+      if(onSaved) await onSaved();
       setStatus("Saved on this device");
       setLastSaved(new Date(updated.modifiedAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}));
-    }catch(e){setStatus("Save failed");setError(e.message||"Could not save document.");}
+      return true;
+    }catch(e){setStatus("Save failed");setError(e.message||"Could not save document.");return false;}
   };
   useEffect(()=>{
     if(!ready||!recordRef.current)return;
     const timer=setTimeout(()=>{persist(title,html);},650);
     return ()=>clearTimeout(timer);
   },[title,html,ready]);
+  useEffect(()=>()=> {
+    if(!readyRef.current||!recordRef.current)return;
+    const existing=recordRef.current;
+    const normalized=(titleRef.current||"").trim()||"Untitled document";
+    const blob=new Blob([htmlRef.current||"<p></p>"],{type:DOC_MIME});
+    const finalRecord={...existing,name:normalized,type:DOC_MIME,blob,size:blob.size,modifiedAt:Date.now()};
+    write("files",finalRecord).catch(()=>{});
+  },[]);
   useEffect(()=>{
     const handleKey=event=>{
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="s"){
@@ -294,7 +304,7 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink}) {
   return <FluentProvider theme={dark?webDarkTheme:webLightTheme}>
     <div className={s.shell+" ff-doc-page"}>
       <header className={s.header}>
-        <Button appearance="subtle" onClick={()=>{if(record)onBack(record.folderId);else onBack(null);}} icon={<FolderOpen24Regular/>}>Back to files</Button>
+        <Button appearance="subtle" onClick={async()=>{if(record){const saved=await persist(titleRef.current,htmlRef.current);if(saved)onBack(record.folderId);}else onBack(null);}} icon={<FolderOpen24Regular/>}>Back to files</Button>
         <div style={{minWidth:0,display:"grid",gap:2}}>
           <Input className={s.titleInput} size="large" value={title} onChange={(_,data)=>setTitle(data.value)} placeholder="Untitled document" aria-label="Document title"/>
           <Text size={100} className={s.status}>{status}{lastSaved&&status==="Saved on this device"?" · "+lastSaved:""}</Text>
@@ -636,7 +646,7 @@ function App() {
     } catch(e){toast("Could not restore this ZIP backup. "+(e.message||""));}
   };
   const fileCard = f => <FileCard key={f.id} file={f} layout={layout} styles={s} onAction={action} onPreview={preview} onCopyLink={copyLink} selected={selectedIds.includes(f.id)} onSelect={toggleSelected}/>;
-  if(view==="doc") return <FluentDocEditor key={documentId} fileId={documentId} dark={dark} onBack={parentId=>setRoute(parentId?"folder/"+encodeURIComponent(parentId):"files")} onCopyLink={copyLink}/>;
+  if(view==="doc") return <FluentDocEditor key={documentId} fileId={documentId} dark={dark} onBack={parentId=>setRoute(parentId?"folder/"+encodeURIComponent(parentId):"files")} onCopyLink={copyLink} onSaved={refresh}/>;
   const bulkAction = async mode => {
     const targets=selectedFiles;
     if(!targets.length)return;
@@ -657,7 +667,10 @@ function App() {
       } else if(mode==="download"){
         const JSZip=(await import("jszip")).default,zip=new JSZip();
         const pathFor=id=>{const parts=[],seen=new Set();let folder=id?getFolder(id):null;while(folder&&!seen.has(folder.id)){parts.unshift(folder.name);seen.add(folder.id);folder=folder.parentId?getFolder(folder.parentId):null;}return parts;};
-        targets.filter(f=>!isDeleted(f)).forEach(file=>zip.file(pathFor(file.folderId).concat(file.name).join("/"),file.blob));
+        const archived=targets.filter(f=>!isDeleted(f));
+        const archivePath=file=>pathFor(file.folderId).concat(isDocument(file)&&!file.name.toLowerCase().endsWith(".html")?file.name+".html":file.name).join("/");
+        archived.forEach(file=>zip.file(archivePath(file),file.blob));
+        zip.file("_fluentfile-manifest.json",JSON.stringify({version:1,files:archived.map(file=>({path:archivePath(file),name:file.name,type:file.type,favorite:!!file.favorite,createdAt:file.createdAt,modifiedAt:file.modifiedAt,isDocument:isDocument(file)}))},null,2));
         const blob=await zip.generateAsync({type:"blob"}),url=URL.createObjectURL(blob),a=document.createElement("a");
         a.href=url;a.download="FluentFile-selected-files.zip";a.click();setTimeout(()=>URL.revokeObjectURL(url),1200);
         toast("ZIP containing selected files is ready.");

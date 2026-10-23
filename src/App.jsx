@@ -4,7 +4,7 @@ import StarterKit from "@tiptap/starter-kit";
 import {
   FluentProvider, webLightTheme, webDarkTheme, makeStyles, tokens,
   Button, Input, SearchBox, Checkbox, Text, Title2, Title3, Body1, Caption1,
-  Card, Toolbar, ToolbarButton, Badge, Tooltip, Spinner,
+  Card, Divider, Toolbar, ToolbarButton, Badge, Tooltip, Spinner,
   MessageBar, MessageBarBody, Dialog, DialogSurface, DialogBody,
   DialogTitle, DialogContent, DialogActions, Field, Dropdown, Option,
   Switch, Menu, MenuTrigger, MenuPopover, MenuList, MenuItem, ProgressBar
@@ -343,6 +343,7 @@ function App() {
   const [folders,setFolders] = useState([]);
   const [view,setView] = useState("files");
   const [folderId,setFolderId] = useState(null);
+  const [documentId,setDocumentId] = useState(null);
   const [query,setQuery] = useState("");
   const [sortBy,setSortBy] = useState("modified");
   const [fileFilter,setFileFilter] = useState("all");
@@ -394,19 +395,21 @@ function App() {
     if(!raw)return;
     const parts=raw.split("/").filter(Boolean).map(part=>{try{return decodeURIComponent(part);}catch{return part;}});
     try {
-      if(parts[0]==="file"&&parts[1]){
+      if((parts[0]==="file"||parts[0]==="doc")&&parts[1]){
         const all=await getAll("files"),file=all.find(item=>item.id===parts[1]);
-        if(!file){setView("files");setFolderId(null);setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");toast("This file link isn't available in this browser's local storage.");return;}
-        setView(isDeleted(file)?"trash":"files");setFolderId(file.folderId||null);setQuery("");
-        await showPreview(file);return;
+        if(!file){setView("files");setFolderId(null);setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");setDocumentId(null);toast("This file link isn't available in this browser's local storage.");return;}
+        setFolderId(file.folderId||null);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");
+        if(isDocument(file)){setView("doc");setDocumentId(file.id);return;}
+        if(parts[0]==="doc"){setView("files");setDocumentId(null);toast("This link does not point to a FluentFile document.");return;}
+        setDocumentId(null);setView(isDeleted(file)?"trash":"files");await showPreview(file);return;
       }
       if(parts[0]==="folder"&&parts[1]){
         const all=await getAll("folders"),folder=all.find(item=>item.id===parts[1]);
         if(!folder){setView("files");setFolderId(null);setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");toast("This folder link is no longer available in this browser.");return;}
         setView("files");setFolderId(folder.id);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");return;
       }
-      const next=["files","recent","favorites","trash"].includes(parts[0])?parts[0]:"files";
-      setView(next);setFolderId(null);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");
+      const next=["files","recent","favorites","trash","docs"].includes(parts[0])?parts[0]:"files";
+      setView(next);setDocumentId(null);setFolderId(null);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");
     } catch(error) { setStorageError(error.message||"Could not open this link."); }
   };
   const setRoute = path => {
@@ -421,7 +424,7 @@ function App() {
     return ()=>window.removeEventListener("hashchange",onHashChange);
   },[]);
   const copyLink = async (type,item) => {
-    const path=type==="folder"?"folder/"+encodeURIComponent(item.id):"file/"+encodeURIComponent(item.id);
+    const path=type==="folder"?"folder/"+encodeURIComponent(item.id):type==="doc"?"doc/"+encodeURIComponent(item.id):"file/"+encodeURIComponent(item.id);
     const url=window.location.origin+window.location.pathname+"#/"+path;
     try {
       if(navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
@@ -467,6 +470,7 @@ function App() {
   let shownFiles=files.filter(f=>{
     if(view==="trash")return isDeleted(f);
     if(isDeleted(f))return false;
+    if(view==="docs"&&!isDocument(f))return false;
     if(view==="favorites"&&!f.favorite)return false;
     if(view==="files"&&!q&&f.folderId!==folderId)return false;
     return true;
@@ -474,7 +478,7 @@ function App() {
   if(q)shownFiles=shownFiles.filter(f=>f.name.toLocaleLowerCase().includes(q));
   if(fileFilter!=="all")shownFiles=shownFiles.filter(f=>{
     const k=kind(f);
-    if(fileFilter==="documents")return ["pdf","text"].includes(k);
+    if(fileFilter==="documents")return ["document","pdf","text"].includes(k);
     if(fileFilter==="other")return k==="file";
     return k===fileFilter;
   });
@@ -487,7 +491,7 @@ function App() {
   const toggleSelected=(id,checked)=>setSelectedIds(ids=>checked?Array.from(new Set([...ids,id])):ids.filter(existing=>existing!==id));
   const toggleShownSelection=()=>setSelectedIds(ids=>allShownSelected?ids.filter(id=>!shownFiles.some(f=>f.id===id)):Array.from(new Set([...ids,...shownFiles.map(f=>f.id)])));
 
-  const goView = name => {setSelectedIds([]);setFileFilter("all");setQuery("");setRoute(name);};
+  const goView = name => {setSelectedIds([]);setFileFilter("all");setQuery("");setDocumentId(null);setRoute(name);};
   const openEditor = (type,target=null) => {setDialog(type);setDialogTarget(target);setDialogName(target?.name||"");setMoveTarget(type==="move"&&target?.folderId?target.folderId:"root");};
   const closeDialog = () => {setDialog(null);setDialogTarget(null);setDialogName("");};
   const createFolder = async () => {
@@ -509,13 +513,22 @@ function App() {
       await refresh();toast("Saved "+incoming.length+" file"+(incoming.length===1?"":"s")+" to this browser.");
     } catch(e){toast("Could not save files. "+(e.message||"Check browser storage quota."));await refresh();}
   };
-  const download = file => {
-    const url=URL.createObjectURL(file.blob),a=document.createElement("a");
-    a.href=url;a.download=file.name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1200);
+  const createDocument = async () => {
+    try {
+      const html="<p></p>",blob=new Blob([html],{type:DOC_MIME}),now=Date.now();
+      const record={id:uid(),name:"Untitled document",type:DOC_MIME,size:blob.size,modifiedAt:now,createdAt:now,folderId:view==="files"?folderId:null,blob,favorite:false,deletedAt:null};
+      await write("files",record);await refresh();setDocumentId(record.id);setRoute("doc/"+encodeURIComponent(record.id));
+    } catch(error){toast("Could not create document. "+(error.message||"Check browser storage quota."));}
+  };
+  const download = async file => {
+    const blob=isDocument(file)?new Blob([fullDocumentHtml(file.name,await file.blob.text())],{type:"text/html;charset=utf-8"}):file.blob;
+    const url=URL.createObjectURL(blob),a=document.createElement("a");
+    a.href=url;a.download=isDocument(file)?(file.name.toLowerCase().endsWith(".html")?file.name:file.name+".html"):file.name;
+    document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1200);
   };
   const preview = async file => {
-    const next="#/file/"+encodeURIComponent(file.id);
-    if(window.location.hash===next) await showPreview(file);
+    const next="#/"+(isDocument(file)?"doc/":"file/")+encodeURIComponent(file.id);
+    if(window.location.hash===next) await syncRoute();
     else window.location.hash=next;
   };
   const closePreview = () => {
@@ -603,6 +616,7 @@ function App() {
     } catch(e){toast("Could not restore this ZIP backup. "+(e.message||""));}
   };
   const fileCard = f => <FileCard key={f.id} file={f} layout={layout} styles={s} onAction={action} onPreview={preview} onCopyLink={copyLink} selected={selectedIds.includes(f.id)} onSelect={toggleSelected}/>;
+  if(view==="doc") return <FluentDocEditor key={documentId} fileId={documentId} dark={dark} onBack={parentId=>setRoute(parentId?"folder/"+encodeURIComponent(parentId):"files")} onCopyLink={copyLink}/>;
   const bulkAction = async mode => {
     const targets=selectedFiles;
     if(!targets.length)return;
@@ -635,8 +649,8 @@ function App() {
     const blocked=dialog==="move-folder"&&dialogTarget?folderDescendants(dialogTarget.id):new Set();
     return folders.filter(folder=>!blocked.has(folder.id));
   })();
-  const title = view==="trash"?"Recycle bin":view==="favorites"?"Favorites":view==="recent"?"Recent":folderLabel(folderId);
-  const subtitle = view==="trash"?"Restore deleted files or permanently remove them.":view==="favorites"?"Your starred files in one place.":view==="recent"?"Your most recently changed files.":"Organize files and folders stored in this browser.";
+  const title = view==="trash"?"Recycle bin":view==="favorites"?"Favorites":view==="recent"?"Recent":view==="docs"?"FluentFile Docs":folderLabel(folderId);
+  const subtitle = view==="trash"?"Restore deleted files or permanently remove them.":view==="favorites"?"Your starred files in one place.":view==="recent"?"Your most recently changed files.":view==="docs"?"Create, edit, and organize your documents alongside your files.":"Organize files and folders stored in this browser.";
 
   return <FluentProvider theme={dark?webDarkTheme:webLightTheme}>
     <div className={s.app+" ff-app"}>
@@ -648,6 +662,7 @@ function App() {
         <section><Text className={s.navLabel+" ff-nav-label"}>Workspace</Text><nav className={s.nav+" ff-nav"}>
           <Button className={s.navButton+" ff-nav-button "+(view==="files"?s.navActive:"")} appearance="subtle" icon={<Home24Regular/>} onClick={()=>goView("files")}><span className="ff-nav-text">My files</span></Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="recent"?s.navActive:"")} appearance="subtle" icon={<Clock24Regular/>} onClick={()=>goView("recent")}><span className="ff-nav-text">Recent</span></Button>
+          <Button className={s.navButton+" ff-nav-button "+(view==="docs"?s.navActive:"")} appearance="subtle" icon={<Document24Regular/>} onClick={()=>goView("docs")}><span className="ff-nav-text">Docs</span></Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="favorites"?s.navActive:"")} appearance="subtle" icon={<Star24Regular/>} onClick={()=>goView("favorites")}><span className="ff-nav-text">Favorites</span>{favCount>0&&<Badge size="small">{favCount}</Badge>}</Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="trash"?s.navActive:"")} appearance="subtle" icon={<Delete24Regular/>} onClick={()=>goView("trash")}><span className="ff-nav-text">Recycle bin</span>{trashFiles.length>0&&<Badge size="small">{trashFiles.length}</Badge>}</Button>
         </nav></section>
@@ -672,7 +687,10 @@ function App() {
           {storageError&&<MessageBar intent="error"><MessageBarBody><strong>Browser storage is unavailable. </strong>{storageError} Check your browser's site storage settings and reload.</MessageBarBody></MessageBar>}
           <div className={s.pageHead}>
             <div className={s.titleBlock}><Caption1>WORKSPACE / {view==="files"?"MY FILES":view.toUpperCase()}</Caption1><Title2>{title}</Title2><Body1>{subtitle}</Body1></div>
-            {view==="files"&&<div className={s.actions}><Button appearance="secondary" icon={<FolderAdd24Regular/>} onClick={()=>openEditor("new-folder")}>New folder</Button><Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>inputRef.current?.click()}>Upload files</Button><input ref={inputRef} type="file" multiple hidden onChange={e=>{addFiles(e.target.files);e.target.value="";}}/></div>}
+            {(view==="files"||view==="docs")&&<div className={s.actions}>
+              <Button appearance="secondary" icon={<Document24Regular/>} onClick={createDocument}>New document</Button>
+              {view==="files"&&<><Button appearance="secondary" icon={<FolderAdd24Regular/>} onClick={()=>openEditor("new-folder")}>New folder</Button><Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>inputRef.current?.click()}>Upload files</Button><input ref={inputRef} type="file" multiple hidden onChange={e=>{addFiles(e.target.files);e.target.value="";}}/></>}
+            </div>}
           </div>
           {view==="files"&&<div className={s.dropzone+" "+(dragging?s.dropDrag:"")} onDragOver={e=>{e.preventDefault();setDragging(true);}} onDragLeave={()=>setDragging(false)} onDrop={e=>{e.preventDefault();setDragging(false);addFiles(e.dataTransfer.files);}}>
             <div className={s.dropMark}><ArrowUpload24Regular fontSize={22}/></div><div className={s.dropCopy+" ff-drop-copy"}><Text weight="semibold">Drop files here</Text><Caption1>or use Upload files. Everything stays in this browser.</Caption1></div><Button appearance="subtle" onClick={()=>inputRef.current?.click()}>Browse files</Button>
@@ -707,9 +725,10 @@ function App() {
               {shownFiles.length>0&&<section className={s.section}><Title3 className={s.sectionTitle}>{view==="trash"?"Deleted files":shownFolders.length?"Files":"All files"}</Title3><div className={(layout==="list"?s.fileGrid+" "+s.fileGridList:s.fileGrid)+" ff-file-grid"}>{shownFiles.map(fileCard)}</div></section>}
             </div>
             {!shownFolders.length&&!shownFiles.length&&<div className={s.empty}><div className={s.emptyMark}>{view==="trash"?<Delete24Regular fontSize={30}/>:view==="favorites"?<Star24Regular fontSize={30}/>:<FolderOpen24Regular fontSize={30}/>}</div>
-              <Title3>{query?"No matches found":view==="trash"?"Recycle bin is empty":view==="favorites"?"No favorites yet":view==="recent"?"No recent files":"Start with your first file"}</Title3>
-              <Body1>{query?"Try another search or clear the search box.":view==="trash"?"Deleted files appear here so you can restore them.":view==="favorites"?"Use the star action on a file to keep it here.":view==="recent"?"Recently changed files will appear here.":"Upload files from your device or create a folder to stay organized."}</Body1>
-              {view==="files"&&!query&&<div className={s.actions}><Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>inputRef.current?.click()}>Upload files</Button><Button appearance="secondary" icon={<FolderAdd24Regular/>} onClick={()=>openEditor("new-folder")}>Create folder</Button></div>}
+              <Title3>{query?"No matches found":view==="trash"?"Recycle bin is empty":view==="favorites"?"No favorites yet":view==="recent"?"No recent files":view==="docs"?"No documents yet":"Start with your first file"}</Title3>
+              <Body1>{query?"Try another search or clear the search box.":view==="trash"?"Deleted files appear here so you can restore them.":view==="favorites"?"Use the star action on a file to keep it here.":view==="recent"?"Recently changed files will appear here.":view==="docs"?"Create your first document in FluentFile Docs.":"Upload files from your device or create a folder to stay organized."}</Body1>
+              {view==="docs"&&!query&&<Button appearance="primary" icon={<Document24Regular/>} onClick={createDocument}>Create document</Button>}
+              {view==="files"&&!query&&<div className={s.actions}><Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>inputRef.current?.click()}>Upload files</Button><Button appearance="secondary" icon={<FolderAdd24Regular/>} onClick={()=>openEditor("new-folder")}>Create folder</Button><Button appearance="secondary" icon={<Document24Regular/>} onClick={createDocument}>Create document</Button></div>}
               {query&&<Button appearance="secondary" onClick={()=>setQuery("")}>Clear search</Button>}
             </div>}
           </>}

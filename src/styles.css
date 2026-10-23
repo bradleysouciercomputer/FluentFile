@@ -1,3 +1,26 @@
 html,body,#root{min-height:100%;margin:0}body{font-family:"Segoe UI",-apple-system,BlinkMacSystemFont,sans-serif}*{box-sizing:border-box}
 @media(max-width:900px){.ff-app{grid-template-columns:74px minmax(0,1fr)!important}.ff-sidebar{align-items:center;padding-left:8px;padding-right:8px}.ff-brand{padding-left:0;padding-right:0}.ff-brand-text,.ff-nav-label,.ff-nav-text,.ff-storage{display:none!important}.ff-nav-button{justify-content:center;padding-left:0;padding-right:0}.ff-topbar{padding-left:18px;padding-right:18px}.ff-page{padding-left:18px;padding-right:18px}}
 @media(max-width:600px){.ff-app{display:block!important}.ff-sidebar{min-height:auto;position:sticky;top:0;z-index:5;flex-direction:row;padding:8px 12px;border-right:0;border-bottom:1px solid #e0e0e0;gap:8px}.ff-brand{flex-shrink:0}.ff-brand-text{display:block!important}.ff-nav{flex-direction:row;min-width:0;overflow-x:auto;flex:1}.ff-nav-button{width:38px;min-width:38px;padding:0}.ff-nav-text{display:none!important}.ff-storage,.ff-privacy-text,.ff-drop-copy{display:none!important}.ff-topbar{min-height:58px;padding:9px 12px;gap:8px}.ff-page{padding:18px 12px 28px}.ff-file-grid{grid-template-columns:repeat(auto-fill,minmax(min(155px,100%),1fr));gap:8px}.ff-file-preview{height:94px}.ff-file-preview-list{height:52px;width:45px}.ff-preview-dialog{max-width:min(900px,calc(100vw - 24px))!important}}
+
+/* FluentFile Docs rich-text editing surface */
+.ff-doc-page .ff-doc-paper { min-height:72vh; }
+.ff-doc-editor-content .tiptap { min-height:68vh; padding:48px clamp(22px, 7vw, 88px); outline:none; color:var(--colorNeutralForeground1, #242424); font-size:16px; line-height:1.7; overflow-wrap:anywhere; }
+.ff-doc-editor-content .tiptap > :first-child { margin-top:0; }
+.ff-doc-editor-content .tiptap h1,.ff-doc-editor-content .tiptap h2,.ff-doc-editor-content .tiptap h3 { line-height:1.25; margin:1.4em 0 .55em; font-weight:650; }
+.ff-doc-editor-content .tiptap h1 { font-size:2em; }
+.ff-doc-editor-content .tiptap h2 { font-size:1.55em; }
+.ff-doc-editor-content .tiptap h3 { font-size:1.2em; }
+.ff-doc-editor-content .tiptap p { margin:.6em 0; }
+.ff-doc-editor-content .tiptap ul,.ff-doc-editor-content .tiptap ol { padding-left:1.6em; }
+.ff-doc-editor-content .tiptap blockquote { border-left:3px solid var(--colorBrandStroke1, #0f6cbd); margin:1em 0; padding:.15em 0 .15em 1em; color:var(--colorNeutralForeground2, #424242); }
+.ff-doc-editor-content .tiptap pre { background:var(--colorNeutralBackground3, #f5f5f5); border-radius:6px; padding:12px 14px; overflow-x:auto; font:13px/1.55 Consolas,monospace; }
+.ff-doc-editor-content .tiptap code { background:var(--colorNeutralBackground3, #f5f5f5); border-radius:3px; padding:.08em .25em; font: .9em Consolas,monospace; }
+.ff-doc-editor-content .tiptap pre code { background:transparent; padding:0; }
+.ff-doc-editor-content .tiptap hr { border:0; border-top:1px solid var(--colorNeutralStroke2, #e0e0e0); margin:1.5em 0; }
+.ff-doc-editor-content .tiptap a { color:var(--colorBrandForeground1, #0f6cbd); text-decoration:underline; cursor:pointer; }
+.ff-doc-editor-content .tiptap p.is-editor-empty:first-child::before { color:var(--colorNeutralForeground4, #9a9a9a); content:"Start writing your document…"; float:left; height:0; pointer-events:none; }
+@media(max-width:600px) {
+  .ff-doc-page .ff-doc-header { gap:8px; }
+  .ff-doc-page .ff-doc-title-input { width:min(100%, 70vw); }
+  .ff-doc-editor-content .tiptap { padding:28px 20px; }
+}

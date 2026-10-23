@@ -385,7 +385,7 @@ function App() {
     if(!window.confirm('Delete empty folder "'+folder.name+'"?'))return;
     try {
       await remove("folders",folder.id);
-      if(folderId===folder.id)setFolderId(folder.parentId||null);
+      if(folderId===folder.id)setRoute(folder.parentId?"folder/"+encodeURIComponent(folder.parentId):"files");
       await refresh();toast("Folder deleted.");
     } catch(error){toast(error.message||"Could not delete folder.");}
   };
@@ -401,9 +401,9 @@ function App() {
       if(name==="favorite"){await write("files",{...file,favorite:!file.favorite});await refresh();if(previewFile?.id===file.id)setPreviewFile({...file,favorite:!file.favorite});toast(file.favorite?"Removed from favorites.":"Added to favorites.");}
       if(name==="download")download(file);
       if(name==="preview")preview(file);
-      if(name==="trash"){await write("files",{...file,deletedAt:Date.now()});await refresh();toast("Moved to recycle bin.");}
-      if(name==="restore"){await write("files",{...file,deletedAt:null});await refresh();toast("File restored.");}
-      if(name==="delete"&&window.confirm('Permanently delete "'+file.name+'"? This cannot be undone.')){await remove("files",file.id);await refresh();toast("File permanently deleted.");}
+      if(name==="trash"){await write("files",{...file,deletedAt:Date.now()});setSelectedIds(ids=>ids.filter(id=>id!==file.id));await refresh();toast("Moved to recycle bin.");}
+      if(name==="restore"){await write("files",{...file,deletedAt:null});setSelectedIds(ids=>ids.filter(id=>id!==file.id));await refresh();toast("File restored.");}
+      if(name==="delete"&&window.confirm('Permanently delete "'+file.name+'"? This cannot be undone.')){await remove("files",file.id);setSelectedIds(ids=>ids.filter(id=>id!==file.id));await refresh();toast("File permanently deleted.");}
       if(name==="rename")openEditor("rename-file",file);
       if(name==="move")openEditor("move",file);
       if(name==="move-folder")openEditor("move-folder",file);

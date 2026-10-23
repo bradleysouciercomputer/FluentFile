@@ -181,7 +181,7 @@ function FileCard({file,layout,styles,onAction,onPreview,onCopyLink,selected,onS
         <Menu><MenuTrigger disableButtonEnhancement><Button appearance="subtle" icon={<MoreHorizontal24Regular/>} aria-label={"More options for "+file.name}/></MenuTrigger>
           <MenuPopover><MenuList>
             <MenuItem icon={<Open24Regular/>} onClick={() => onPreview(file)}>Preview</MenuItem>
-            <MenuItem onClick={() => onCopyLink("file",file)}>Copy file link</MenuItem>
+            <MenuItem onClick={() => onCopyLink(isDocument(file)?"doc":"file",file)}>{isDocument(file)?"Copy document link":"Copy file link"}</MenuItem>
             <MenuItem icon={<Document24Regular/>} onClick={() => onAction("duplicate",file)}>Make a copy</MenuItem>
             <MenuItem icon={<Rename24Regular/>} onClick={() => onAction("rename",file)}>Rename</MenuItem>
             <MenuItem icon={<Delete24Regular/>} onClick={() => onAction("trash",file)}>Move to recycle bin</MenuItem>
@@ -294,7 +294,7 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
   const exportAs=async format=>{
     if(!editor)return;
     const safe=(title||"Untitled document").trim()||"Untitled document";
-    const content=format==="txt"?editor.getText("\\n"):fullDocumentHtml(safe,editor.getHTML());
+    const content=format==="txt"?editor.getText("\n"):fullDocumentHtml(safe,editor.getHTML());
     const blob=new Blob([content],{type:format==="txt"?"text/plain;charset=utf-8":"text/html;charset=utf-8"});
     const url=URL.createObjectURL(blob),anchor=document.createElement("a");
     anchor.href=url;anchor.download=safe.replace(/[\\\\/:*?"<>|]/g,"_")+(format==="txt"?".txt":".html");
@@ -303,10 +303,10 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
   const copyLink=()=>onCopyLink("doc",record);
   return <FluentProvider theme={dark?webDarkTheme:webLightTheme}>
     <div className={s.shell+" ff-doc-page"}>
-      <header className={s.header}>
+      <header className={s.header+" ff-doc-header"}>
         <Button appearance="subtle" onClick={async()=>{if(record){const saved=await persist(titleRef.current,htmlRef.current);if(saved)onBack(record.folderId);}else onBack(null);}} icon={<FolderOpen24Regular/>}>Back to files</Button>
         <div style={{minWidth:0,display:"grid",gap:2}}>
-          <Input className={s.titleInput} size="large" value={title} onChange={(_,data)=>setTitle(data.value)} placeholder="Untitled document" aria-label="Document title"/>
+          <Input className={s.titleInput+" ff-doc-title-input"} size="large" value={title} onChange={(_,data)=>setTitle(data.value)} placeholder="Untitled document" aria-label="Document title"/>
           <Text size={100} className={s.status}>{status}{lastSaved&&status==="Saved on this device"?" · "+lastSaved:""}</Text>
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -534,10 +534,12 @@ function App() {
     } catch(error){toast("Could not create document. "+(error.message||"Check browser storage quota."));}
   };
   const download = async file => {
-    const blob=isDocument(file)?new Blob([fullDocumentHtml(file.name,await file.blob.text())],{type:"text/html;charset=utf-8"}):file.blob;
-    const url=URL.createObjectURL(blob),a=document.createElement("a");
-    a.href=url;a.download=isDocument(file)?(file.name.toLowerCase().endsWith(".html")?file.name:file.name+".html"):file.name;
-    document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1200);
+    try{
+      const blob=isDocument(file)?new Blob([fullDocumentHtml(file.name,await file.blob.text())],{type:"text/html;charset=utf-8"}):file.blob;
+      const url=URL.createObjectURL(blob),a=document.createElement("a");
+      a.href=url;a.download=isDocument(file)?(file.name.toLowerCase().endsWith(".html")?file.name:file.name+".html"):file.name;
+      document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1200);
+    }catch(error){toast("Could not download file. "+(error.message||"Try again."));}
   };
   const preview = async file => {
     const next="#/"+(isDocument(file)?"doc/":"file/")+encodeURIComponent(file.id);

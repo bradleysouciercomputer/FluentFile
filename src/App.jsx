@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
+import { EditorContent, useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
 import {
   FluentProvider, webLightTheme, webDarkTheme, makeStyles, tokens,
   Button, Input, SearchBox, Checkbox, Text, Title2, Title3, Body1, Caption1,
@@ -18,6 +20,10 @@ import {
 } from "@fluentui/react-icons";
 
 const DB = "fluentfile-browser-store";
+const DOC_MIME = "application/vnd.fluentfile.document+html";
+const isDocument = file => Boolean(file && file.type === DOC_MIME);
+const escapedHtml = value => String(value || "").replace(/[&<>"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[char]));
+const fullDocumentHtml = (title, body) => "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>"+escapedHtml(title)+"</title><style>body{font:16px/1.65 Segoe UI,Arial,sans-serif;max-width:800px;margin:48px auto;padding:0 24px;color:#222}h1,h2,h3{line-height:1.25}img{max-width:100%}pre{white-space:pre-wrap}</style></head><body>"+body+"</body></html>";
 function openDB() {
   return new Promise((resolve, reject) => {
     if (!("indexedDB" in window)) return reject(new Error("IndexedDB is unavailable in this browser."));
@@ -69,6 +75,7 @@ const date = n => new Intl.DateTimeFormat(undefined, { month: "short", day: "num
 const isDeleted = file => !!file.deletedAt;
 const kind = file => {
   const e = ext(file.name), t = (file.type || "").toLowerCase();
+  if (isDocument(file)) return "document";
   if (t.startsWith("image/") || ["png","jpg","jpeg","gif","webp","svg","bmp","avif"].includes(e)) return "image";
   if (t.startsWith("video/") || ["mp4","webm","mov","m4v"].includes(e)) return "video";
   if (t.startsWith("audio/") || ["mp3","wav","ogg","m4a","flac"].includes(e)) return "audio";
@@ -82,6 +89,7 @@ const iconFor = file => {
     case "video": return <VideoClip24Regular />;
     case "audio": return <Document24Regular />;
     case "pdf": return <DocumentPdf24Regular />;
+    case "document": return <Document24Regular />;
     case "file": return <Attach24Regular />;
     default: return <Document24Regular />;
   }
@@ -182,6 +190,151 @@ function FileCard({file,layout,styles,onAction,onPreview,onCopyLink,selected,onS
       </>}
     </div>
   </Card>;
+}
+
+function FluentDocEditor({fileId, dark, onBack, onCopyLink}) {
+  const docStyles = makeStyles({
+    shell:{minHeight:"100vh",display:"flex",flexDirection:"column",backgroundColor:tokens.colorNeutralBackground2,color:tokens.colorNeutralForeground1},
+    header:{display:"flex",alignItems:"center",gap:"12px",flexWrap:"wrap",padding:"12px 22px",backgroundColor:tokens.colorNeutralBackground1,borderBottom:"1px solid "+tokens.colorNeutralStroke2},
+    titleInput:{width:"min(480px, 45vw)"},
+    status:{color:tokens.colorNeutralForeground3,whiteSpace:"nowrap"},
+    toolbar:{display:"flex",alignItems:"center",gap:"4px",flexWrap:"wrap",padding:"10px 22px",backgroundColor:tokens.colorNeutralBackground1,borderBottom:"1px solid "+tokens.colorNeutralStroke2},
+    workarea:{flex:1,padding:"24px 16px 60px"},
+    paper:{maxWidth:"920px",minHeight:"72vh",margin:"0 auto",backgroundColor:tokens.colorNeutralBackground1,border:"1px solid "+tokens.colorNeutralStroke2,borderRadius:tokens.borderRadiusLarge,boxShadow:tokens.shadow4,overflow:"hidden"},
+    editor:{minHeight:"72vh",padding:"48px clamp(22px, 7vw, 88px)",fontSize:"16px",lineHeight:"1.7",color:tokens.colorNeutralForeground1,outline:"none"},
+    footer:{padding:"10px 22px",display:"flex",alignItems:"center",gap:"8px",color:tokens.colorNeutralForeground3,backgroundColor:tokens.colorNeutralBackground1,borderTop:"1px solid "+tokens.colorNeutralStroke2}
+  });
+  const s=docStyles();
+  const [record,setRecord]=useState(null);
+  const [title,setTitle]=useState("");
+  const [html,setHtml]=useState("<p></p>");
+  const [ready,setReady]=useState(false);
+  const [status,setStatus]=useState("Loading document…");
+  const [lastSaved,setLastSaved]=useState("");
+  const [error,setError]=useState("");
+  const recordRef=useRef(null), titleRef=useRef(title), htmlRef=useRef(html), readyRef=useRef(false), loadGeneration=useRef(0);
+  titleRef.current=title;htmlRef.current=html;
+  const editor=useEditor({
+    extensions:[StarterKit.configure({heading:{levels:[1,2,3]}})],
+    content:"<p></p>",
+    onUpdate:({editor})=>{
+      if(!readyRef.current)return;
+      setHtml(editor.getHTML());
+      setStatus("Unsaved changes");
+    },
+    editorProps:{attributes:{"class":"tiptap","aria-label":"Document editor","spellcheck":"true"}}
+  });
+  useEffect(()=>{
+    if(!editor)return;
+    let active=true;
+    const generation=++loadGeneration.current;
+    readyRef.current=false;setReady(false);setStatus("Loading document…");setError("");
+    getAll("files").then(async files=>{
+      const found=files.find(file=>file.id===fileId&&isDocument(file));
+      if(!found)throw new Error("This document could not be found in this browser.");
+      const content=await found.blob.text();
+      if(!active||generation!==loadGeneration.current)return;
+      recordRef.current=found;setRecord(found);setTitle(found.name);setHtml(content||"<p></p>");
+      editor.commands.setContent(content||"<p></p>",{emitUpdate:false});
+      readyRef.current=true;setReady(true);
+      setLastSaved(found.modifiedAt?new Date(found.modifiedAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"");
+      setStatus("Saved on this device");
+    }).catch(e=>{if(active){setError(e.message||"Could not open this document.");setStatus("Could not load document.");}});
+    return ()=>{active=false;};
+  },[editor,fileId]);
+  const persist=async(nextTitle,nextHtml)=>{
+    const existing=recordRef.current;
+    if(!existing||!readyRef.current)return;
+    const normalized=(nextTitle||"").trim()||"Untitled document";
+    const blob=new Blob([nextHtml||"<p></p>"],{type:DOC_MIME});
+    const updated={...existing,name:normalized,type:DOC_MIME,blob,size:blob.size,modifiedAt:Date.now()};
+    setStatus("Saving…");
+    try{
+      await write("files",updated);
+      recordRef.current=updated;setRecord(updated);
+      setStatus("Saved on this device");
+      setLastSaved(new Date(updated.modifiedAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}));
+    }catch(e){setStatus("Save failed");setError(e.message||"Could not save document.");}
+  };
+  useEffect(()=>{
+    if(!ready||!recordRef.current)return;
+    const timer=setTimeout(()=>{persist(title,html);},650);
+    return ()=>clearTimeout(timer);
+  },[title,html,ready]);
+  useEffect(()=>{
+    const handleKey=event=>{
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="s"){
+        event.preventDefault();persist(titleRef.current,htmlRef.current);
+      }
+    };
+    window.addEventListener("keydown",handleKey);
+    return ()=>window.removeEventListener("keydown",handleKey);
+  },[]);
+  const run=command=>{if(editor)command(editor.chain().focus()).run();};
+  const addLink=()=>{
+    if(!editor)return;
+    const current=editor.getAttributes("link").href||"https://";
+    const url=window.prompt("Enter a link URL",current);
+    if(url===null)return;
+    if(!url.trim()){editor.chain().focus().extendMarkRange("link").unsetLink().run();return;}
+    const normalized=/^[a-z][a-z0-9+.-]*:/i.test(url.trim())?url.trim():"https://"+url.trim();
+    try{editor.chain().focus().extendMarkRange("link").setLink({href:normalized,target:"_blank",rel:"noopener noreferrer"}).run();}
+    catch{setError("That link could not be added.");}
+  };
+  const exportAs=async format=>{
+    if(!editor)return;
+    const safe=(title||"Untitled document").trim()||"Untitled document";
+    const content=format==="txt"?editor.getText("\\n"):fullDocumentHtml(safe,editor.getHTML());
+    const blob=new Blob([content],{type:format==="txt"?"text/plain;charset=utf-8":"text/html;charset=utf-8"});
+    const url=URL.createObjectURL(blob),anchor=document.createElement("a");
+    anchor.href=url;anchor.download=safe.replace(/[\\\\/:*?"<>|]/g,"_")+(format==="txt"?".txt":".html");
+    document.body.appendChild(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+  };
+  const copyLink=()=>onCopyLink("doc",record);
+  return <FluentProvider theme={dark?webDarkTheme:webLightTheme}>
+    <div className={s.shell+" ff-doc-page"}>
+      <header className={s.header}>
+        <Button appearance="subtle" onClick={()=>{if(record)onBack(record.folderId);else onBack(null);}} icon={<FolderOpen24Regular/>}>Back to files</Button>
+        <div style={{minWidth:0,display:"grid",gap:2}}>
+          <Input className={s.titleInput} size="large" value={title} onChange={(_,data)=>setTitle(data.value)} placeholder="Untitled document" aria-label="Document title"/>
+          <Text size={100} className={s.status}>{status}{lastSaved&&status==="Saved on this device"?" · "+lastSaved:""}</Text>
+        </div>
+        <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
+          <Button appearance="secondary" onClick={copyLink} disabled={!record}>Copy link</Button>
+          <Menu><MenuTrigger disableButtonEnhancement><Button appearance="secondary" icon={<ArrowDownload24Regular/>}>Export</Button></MenuTrigger><MenuPopover><MenuList><MenuItem onClick={()=>exportAs("html")}>Download as HTML</MenuItem><MenuItem onClick={()=>exportAs("txt")}>Download as plain text</MenuItem></MenuList></MenuPopover></Menu>
+          <Button appearance="primary" onClick={()=>persist(titleRef.current,htmlRef.current)} disabled={!ready}>Save now</Button>
+        </div>
+      </header>
+      <div className={s.toolbar} role="toolbar" aria-label="Document formatting">
+        <Tooltip content="Paragraph" relationship="label"><Button size="small" appearance={editor?.isActive("paragraph")?"primary":"subtle"} onClick={()=>run(chain=>chain.setParagraph())}>P</Button></Tooltip>
+        <Tooltip content="Heading 1" relationship="label"><Button size="small" appearance={editor?.isActive("heading",{level:1})?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleHeading({level:1}))}>H1</Button></Tooltip>
+        <Tooltip content="Heading 2" relationship="label"><Button size="small" appearance={editor?.isActive("heading",{level:2})?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleHeading({level:2}))}>H2</Button></Tooltip>
+        <Tooltip content="Heading 3" relationship="label"><Button size="small" appearance={editor?.isActive("heading",{level:3})?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleHeading({level:3}))}>H3</Button></Tooltip>
+        <Divider vertical/>
+        <Tooltip content="Bold (Ctrl+B)" relationship="label"><Button size="small" appearance={editor?.isActive("bold")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleBold())}>B</Button></Tooltip>
+        <Tooltip content="Italic (Ctrl+I)" relationship="label"><Button size="small" appearance={editor?.isActive("italic")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleItalic())}>I</Button></Tooltip>
+        <Tooltip content="Underline" relationship="label"><Button size="small" appearance={editor?.isActive("underline")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleUnderline())}><span style={{textDecoration:"underline"}}>U</span></Button></Tooltip>
+        <Tooltip content="Strikethrough" relationship="label"><Button size="small" appearance={editor?.isActive("strike")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleStrike())}><span style={{textDecoration:"line-through"}}>S</span></Button></Tooltip>
+        <Divider vertical/>
+        <Tooltip content="Bulleted list" relationship="label"><Button size="small" appearance={editor?.isActive("bulletList")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleBulletList())}>• List</Button></Tooltip>
+        <Tooltip content="Numbered list" relationship="label"><Button size="small" appearance={editor?.isActive("orderedList")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleOrderedList())}>1. List</Button></Tooltip>
+        <Tooltip content="Block quote" relationship="label"><Button size="small" appearance={editor?.isActive("blockquote")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleBlockquote())}>Quote</Button></Tooltip>
+        <Tooltip content="Code block" relationship="label"><Button size="small" appearance={editor?.isActive("codeBlock")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleCodeBlock())}>Code</Button></Tooltip>
+        <Divider vertical/>
+        <Tooltip content="Insert or edit link" relationship="label"><Button size="small" appearance={editor?.isActive("link")?"primary":"subtle"} onClick={addLink}>Link</Button></Tooltip>
+        <Tooltip content="Remove formatting" relationship="label"><Button size="small" appearance="subtle" onClick={()=>run(chain=>chain.unsetAllMarks().clearNodes())}>Clear format</Button></Tooltip>
+        <span style={{flex:1}}/>
+        <Button size="small" appearance="subtle" onClick={()=>run(chain=>chain.undo())} disabled={!editor?.can().undo()}>Undo</Button>
+        <Button size="small" appearance="subtle" onClick={()=>run(chain=>chain.redo())} disabled={!editor?.can().redo()}>Redo</Button>
+      </div>
+      <main className={s.workarea}>
+        {error&&<div style={{maxWidth:920,margin:"0 auto 12px"}}><MessageBar intent="error"><MessageBarBody>{error}</MessageBarBody></MessageBar></div>}
+        {!editor||!ready?<div style={{padding:40,display:"flex",justifyContent:"center"}}><Spinner label={error?"Document unavailable":"Loading document…"}/></div>:
+          <div className={s.paper+" ff-doc-paper"}><EditorContent editor={editor} className="ff-doc-editor-content"/></div>}
+      </main>
+      <footer className={s.footer}><ShieldCheckmark24Regular/><Caption1>Stored locally in this browser</Caption1><span style={{flex:1}}/><Caption1>Ctrl/⌘+S saves now · Autosave is enabled</Caption1></footer>
+    </div>
+  </FluentProvider>;
 }
 
 function App() {

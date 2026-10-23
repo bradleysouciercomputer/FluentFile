@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   FluentProvider, webLightTheme, webDarkTheme, makeStyles, tokens,
-  Button, Input, SearchBox, Text, Title2, Title3, Body1, Caption1,
-  Card, TabList, Tab, Toolbar, ToolbarButton, Badge, Tooltip, Spinner,
+  Button, Input, SearchBox, Checkbox, Text, Title2, Title3, Body1, Caption1,
+  Card, Toolbar, ToolbarButton, Badge, Tooltip, Spinner,
   MessageBar, MessageBarBody, Dialog, DialogSurface, DialogBody,
   DialogTitle, DialogContent, DialogActions, Field, Dropdown, Option,
   Switch, Menu, MenuTrigger, MenuPopover, MenuList, MenuItem, ProgressBar
@@ -145,7 +145,7 @@ const useStyles = makeStyles({
   toast:{position:"fixed",right:"20px",bottom:"20px",zIndex:1000,display:"flex",alignItems:"center",gap:"12px",maxWidth:"min(440px, calc(100vw - 40px))",padding:"8px 10px 8px 16px",backgroundColor:tokens.colorNeutralBackground1,border:"1px solid "+tokens.colorNeutralStroke1,borderRadius:tokens.borderRadiusLarge,boxShadow:tokens.shadow16}
 });
 
-function FileCard({file,layout,styles,onAction,onPreview,onCopyLink}) {
+function FileCard({file,layout,styles,onAction,onPreview,onCopyLink,selected,onSelect}) {
   const [imageUrl,setImageUrl] = useState("");
   useEffect(() => {
     if (kind(file) !== "image") return;
@@ -158,7 +158,7 @@ function FileCard({file,layout,styles,onAction,onPreview,onCopyLink}) {
       {imageUrl ? <img className={styles.thumbnail} src={imageUrl} alt="" /> : React.cloneElement(iconFor(file),{fontSize:32})}
     </div>
     <div className={styles.fileBody}>
-      <div className={styles.fileNameRow}><Text weight="semibold" className={styles.itemName} title={file.name}>{file.name}</Text>{file.favorite && !isDeleted(file) && <Star24Regular color="#C19C00" />}</div>
+      <div className={styles.fileNameRow}><Checkbox checked={selected} onChange={(_,data)=>onSelect(file.id,data.checked)} aria-label={"Select "+file.name}/><Text weight="semibold" className={styles.itemName} title={file.name}>{file.name}</Text>{file.favorite && !isDeleted(file) && <Star24Regular color="#C19C00" />}</div>
       <div className={styles.fileMeta}><Caption1>{size(file.size)}</Caption1><Caption1>{date(file.modifiedAt)}</Caption1></div>
     </div>
     <div className={layout === "list" ? styles.fileActions+" "+styles.fileActionsList : styles.fileActions}>
@@ -192,6 +192,8 @@ function App() {
   const [folderId,setFolderId] = useState(null);
   const [query,setQuery] = useState("");
   const [sortBy,setSortBy] = useState("modified");
+  const [fileFilter,setFileFilter] = useState("all");
+  const [selectedIds,setSelectedIds] = useState([]);
   const [layout,setLayout] = useState("grid");
   const [dark,setDark] = useState(false);
   const [loading,setLoading] = useState(true);
@@ -306,12 +308,22 @@ function App() {
     return true;
   });
   if(q)shownFiles=shownFiles.filter(f=>f.name.toLocaleLowerCase().includes(q));
-  if(sortBy==="name")shownFiles.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:"base"}));
+  if(fileFilter!=="all")shownFiles=shownFiles.filter(f=>{
+    const k=kind(f);
+    if(fileFilter==="documents")return ["pdf","text"].includes(k);
+    if(fileFilter==="other")return k==="file";
+    return k===fileFilter;
+  });
+  if(view==="recent"||sortBy==="modified")shownFiles.sort((a,b)=>b.modifiedAt-a.modifiedAt);
+  else if(sortBy==="name")shownFiles.sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:"base"}));
   else if(sortBy==="size")shownFiles.sort((a,b)=>b.size-a.size);
-  else shownFiles.sort((a,b)=>b.modifiedAt-a.modifiedAt);
   if(view==="recent")shownFiles=shownFiles.slice(0,50);
+  const selectedFiles=files.filter(f=>selectedIds.includes(f.id));
+  const allShownSelected=shownFiles.length>0&&shownFiles.every(f=>selectedIds.includes(f.id));
+  const toggleSelected=(id,checked)=>setSelectedIds(ids=>checked?Array.from(new Set([...ids,id])):ids.filter(existing=>existing!==id));
+  const toggleShownSelection=()=>setSelectedIds(ids=>allShownSelected?ids.filter(id=>!shownFiles.some(f=>f.id===id)):Array.from(new Set([...ids,...shownFiles.map(f=>f.id)])));
 
-  const goView = name => {setQuery("");setRoute(name);};
+  const goView = name => {setSelectedIds([]);setFileFilter("all");setQuery("");setRoute(name);};
   const openEditor = (type,target=null) => {setDialog(type);setDialogTarget(target);setDialogName(target?.name||"");setMoveTarget("root");};
   const closeDialog = () => {setDialog(null);setDialogTarget(null);setDialogName("");};
   const createFolder = async () => {
@@ -405,7 +417,7 @@ function App() {
       await refresh();toast("Restored "+count+" file"+(count===1?"":"s")+" from backup.");
     } catch(e){toast("Could not restore this ZIP backup. "+(e.message||""));}
   };
-  const fileCard = f => <FileCard key={f.id} file={f} layout={layout} styles={s} onAction={action} onPreview={preview} onCopyLink={copyLink}/>;
+  const fileCard = f => <FileCard key={f.id} file={f} layout={layout} styles={s} onAction={action} onPreview={preview} onCopyLink={copyLink} selected={selectedIds.includes(f.id)} onSelect={toggleSelected}/>;
   const title = view==="trash"?"Recycle bin":view==="favorites"?"Favorites":view==="recent"?"Recent":folderLabel(folderId);
   const subtitle = view==="trash"?"Restore deleted files or permanently remove them.":view==="favorites"?"Your starred files in one place.":view==="recent"?"Your most recently changed files.":"Organize files and folders stored in this browser.";
 
@@ -431,7 +443,7 @@ function App() {
       </aside>
       <main className={s.main}>
         <header className={s.topbar+" ff-topbar"}>
-          <SearchBox ref={searchRef} className={s.search} placeholder="Search files and folders (Ctrl+K)" value={query} onChange={(_,data)=>setQuery(data.value)}/>
+          <SearchBox ref={searchRef} className={s.search} placeholder="Search files and folders (Ctrl+K)" value={query} onChange={(_,data)=>{setSelectedIds([]);setQuery(data.value);}}/>
           <div className={s.topRight}>
             <Text className={s.privacy}><ShieldCheckmark24Regular/><span className="ff-privacy-text">Stored locally</span></Text>
             <Button appearance="secondary" icon={<ArrowDownload24Regular/>} onClick={backup}>Backup</Button>

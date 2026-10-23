@@ -399,7 +399,10 @@ function App() {
         const all=await getAll("files"),file=all.find(item=>item.id===parts[1]);
         if(!file){setView("files");setFolderId(null);setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");setDocumentId(null);toast("This file link isn't available in this browser's local storage.");return;}
         setFolderId(file.folderId||null);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");
-        if(isDocument(file)){setView("doc");setDocumentId(file.id);return;}
+        if(isDocument(file)){
+          if(isDeleted(file)){setView("trash");setDocumentId(null);toast("This document is in the recycle bin. Restore it before editing.");return;}
+          setView("doc");setDocumentId(file.id);return;
+        }
         if(parts[0]==="doc"){setView("files");setDocumentId(null);toast("This link does not point to a FluentFile document.");return;}
         setDocumentId(null);setView(isDeleted(file)?"trash":"files");await showPreview(file);return;
       }
@@ -584,7 +587,9 @@ function App() {
       const getPath=id=>{const parts=[],pathSeen=new Set();let current=id?getFolder(id):null;while(current&&!pathSeen.has(current.id)){parts.unshift(current.name);pathSeen.add(current.id);current=current.parentId?getFolder(current.parentId):null;}return parts;};
       folders.filter(f=>descendants.has(f.id)).forEach(f=>zip.folder(getPath(f.id).join("/")));
       const contained=liveFiles.filter(file=>descendants.has(file.folderId));
-      contained.forEach(file=>zip.file(getPath(file.folderId).concat(file.name).join("/"),file.blob));
+      const archivePath=file=>getPath(file.folderId).concat(isDocument(file)&&!file.name.toLowerCase().endsWith(".html")?file.name+".html":file.name).join("/");
+      contained.forEach(file=>zip.file(archivePath(file),file.blob));
+      zip.file("_fluentfile-manifest.json",JSON.stringify({version:1,files:contained.map(file=>({path:archivePath(file),name:file.name,type:file.type,favorite:!!file.favorite,createdAt:file.createdAt,modifiedAt:file.modifiedAt,isDocument:isDocument(file)}))},null,2));
       const blob=await zip.generateAsync({type:"blob"}),url=URL.createObjectURL(blob),a=document.createElement("a");
       a.href=url;a.download=folder.name.replace(/[\\/:*?"<>|]/g,"_")+".zip";a.click();setTimeout(()=>URL.revokeObjectURL(url),1200);
       toast("Folder ZIP prepared ("+contained.length+" files).");
@@ -594,8 +599,9 @@ function App() {
     try {
       const JSZip=(await import("jszip")).default,zip=new JSZip(),root=zip.folder("FluentFile backup");
       const pathFor = id => {const parts=[],pathSeen=new Set();let f=id?getFolder(id):null;while(f&&!pathSeen.has(f.id)){parts.unshift(f.name);pathSeen.add(f.id);f=f.parentId?getFolder(f.parentId):null;}return parts;};
-      liveFiles.forEach(f=>root.file(pathFor(f.folderId).concat(f.name).join("/"),f.blob));
-      root.file("_fluentfile-manifest.json",JSON.stringify({version:1,folders,createdAt:new Date().toISOString()},null,2));
+      const archivePath = file => pathFor(file.folderId).concat(isDocument(file)&&!file.name.toLowerCase().endsWith(".html")?file.name+".html":file.name).join("/");
+      liveFiles.forEach(file=>root.file(archivePath(file),file.blob));
+      root.file("_fluentfile-manifest.json",JSON.stringify({version:1,folders,files:liveFiles.map(file=>({path:archivePath(file),name:file.name,type:file.type,favorite:!!file.favorite,createdAt:file.createdAt,modifiedAt:file.modifiedAt,isDocument:isDocument(file)})),createdAt:new Date().toISOString()},null,2));
       const blob=await zip.generateAsync({type:"blob"}),url=URL.createObjectURL(blob),a=document.createElement("a");
       a.href=url;a.download="FluentFile-backup.zip";a.click();setTimeout(()=>URL.revokeObjectURL(url),1200);toast("ZIP backup created.");
     } catch(e){toast("Could not create backup. "+(e.message||"Try again."));}
@@ -603,14 +609,28 @@ function App() {
   const restoreZip = async zipFile => {
     try {
       const JSZip=(await import("jszip")).default,zip=await JSZip.loadAsync(zipFile);
-      const entries=Object.keys(zip.files).filter(key=>!zip.files[key].dir&&!key.endsWith("_fluentfile-manifest.json"));let count=0;
+      const allKeys=Object.keys(zip.files);
+      const manifestKey=allKeys.find(key=>key.endsWith("_fluentfile-manifest.json"));
+      let manifest=null,prefix="";
+      if(manifestKey){
+        try{manifest=JSON.parse(await zip.files[manifestKey].async("string"));prefix=manifestKey.slice(0,manifestKey.lastIndexOf("/")+1);}
+        catch{manifest=null;prefix="";}
+      }
+      const entries=allKeys.filter(key=>!zip.files[key].dir&&!key.endsWith("_fluentfile-manifest.json"));let count=0;
       for(const key of entries){
-        const item=zip.files[key],blob=await item.async("blob"),name=key.split("/").pop();if(!name)continue;
-        const parts=key.split("/").slice(1,-1);let parentId=null;
+        const item=zip.files[key];
+        const relativePath=prefix&&key.startsWith(prefix)?key.slice(prefix.length):key;
+        const metadata=manifest?.files?.find(entry=>entry.path===relativePath);
+        const archivedName=relativePath.split("/").pop();
+        const name=metadata?.name||archivedName;
+        if(!name)continue;
+        const type=metadata?.type||(metadata?.isDocument?DOC_MIME:mimeFor(name));
+        const raw=await item.async("uint8array"),blob=new Blob([raw],{type});
+        const parts=relativePath.split("/").slice(0,-1);let parentId=null;
         for(const part of parts){let all=await getAll("folders"),folder=all.find(f=>f.parentId===parentId&&f.name===part);
           if(!folder){folder={id:uid(),name:part,parentId,createdAt:Date.now()};await write("folders",folder);}parentId=folder.id;
         }
-        await write("files",{id:uid(),name,type:mimeFor(name),size:blob.size,modifiedAt:Date.now(),createdAt:Date.now(),folderId:parentId,blob,favorite:false,deletedAt:null});count++;
+        await write("files",{id:uid(),name,type,size:blob.size,modifiedAt:metadata?.modifiedAt||Date.now(),createdAt:metadata?.createdAt||Date.now(),folderId:parentId,blob,favorite:!!metadata?.favorite,deletedAt:null});count++;
       }
       await refresh();toast("Restored "+count+" file"+(count===1?"":"s")+" from backup.");
     } catch(e){toast("Could not restore this ZIP backup. "+(e.message||""));}

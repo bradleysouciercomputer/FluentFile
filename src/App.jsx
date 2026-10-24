@@ -24,8 +24,10 @@ import {
 const DB = "fluentfile-browser-store";
 const DOC_MIME = "application/vnd.fluentfile.document+html";
 const CANVAS_MIME = "application/vnd.fluentfile.canvas+json";
+const SLIDES_MIME = "application/vnd.fluentfile.slides+json";
 const isDocument = file => Boolean(file && file.type === DOC_MIME);
 const isCanvas = file => Boolean(file && file.type === CANVAS_MIME);
+const isSlides = file => Boolean(file && file.type === SLIDES_MIME);
 const escapedHtml = value => String(value || "").replace(/[&<>"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[char]));
 const sanitizeDocHtml = input => {
   const parsed = new DOMParser().parseFromString(String(input || ""), "text/html");
@@ -161,6 +163,7 @@ const kind = file => {
   const e = ext(file.name), t = (file.type || "").toLowerCase();
   if (isDocument(file)) return "document";
   if (isCanvas(file)) return "canvas";
+  if (isSlides(file)) return "slides";
   if (t.startsWith("image/") || ["png","jpg","jpeg","gif","webp","svg","bmp","avif"].includes(e)) return "image";
   if (t.startsWith("video/") || ["mp4","webm","mov","m4v"].includes(e)) return "video";
   if (t.startsWith("audio/") || ["mp3","wav","ogg","m4a","flac"].includes(e)) return "audio";
@@ -176,6 +179,7 @@ const iconFor = file => {
     case "pdf": return <DocumentPdf24Regular />;
     case "document": return <Document24Regular />;
     case "canvas": return <PaintBrush24Regular />;
+    case "slides": return <AppsList24Regular />;
     case "file": return <Attach24Regular />;
     default: return <Document24Regular />;
   }
@@ -267,7 +271,7 @@ function FileCard({file,layout,styles,onAction,onPreview,onCopyLink,selected,onS
         <Menu><MenuTrigger disableButtonEnhancement><Button appearance="subtle" icon={<MoreHorizontal24Regular/>} aria-label={"More options for "+file.name}/></MenuTrigger>
           <MenuPopover><MenuList>
             <MenuItem icon={<Open24Regular/>} onClick={() => onPreview(file)}>Preview</MenuItem>
-            <MenuItem onClick={() => onCopyLink(isDocument(file)?"doc":isCanvas(file)?"canvas":"file",file)}>{isDocument(file)?"Copy document link":isCanvas(file)?"Copy canvas link":"Copy file link"}</MenuItem>
+            <MenuItem onClick={() => onCopyLink(isDocument(file)?"doc":isCanvas(file)?"canvas":isSlides(file)?"slides":"file",file)}>{isDocument(file)?"Copy document link":isCanvas(file)?"Copy canvas link":isSlides(file)?"Copy Slides link":"Copy file link"}</MenuItem>
             <MenuItem icon={<Document24Regular/>} onClick={() => onAction("duplicate",file)}>Make a copy</MenuItem>
             <MenuItem icon={<Rename24Regular/>} onClick={() => onAction("rename",file)}>Rename</MenuItem>
             <MenuItem icon={<Delete24Regular/>} onClick={() => onAction("trash",file)}>Move to recycle bin</MenuItem>
@@ -869,6 +873,262 @@ function FluentCanvasEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
   </FluentProvider>;
 }
 
+
+const SLIDE_THEMES = {
+  blue: {name:"Fluent blue",background:"#f4f8ff",surface:"#ffffff",text:"#17324f",accent:"#0f6cbd"},
+  violet: {name:"Violet",background:"#f7f4ff",surface:"#ffffff",text:"#2d2550",accent:"#7058d8"},
+  sunset: {name:"Sunset",background:"#fff7ed",surface:"#ffffff",text:"#4b2516",accent:"#c2410c"},
+  midnight: {name:"Midnight",background:"#111827",surface:"#1f2937",text:"#f9fafb",accent:"#60a5fa"}
+};
+const newSlidesModel = () => ({
+  version:1,theme:"blue",
+  slides:[{id:uid(),layout:"title",title:"Your next big idea",body:"A presentation made with FluentFile Slides",notes:""}]
+});
+const slidesHtmlDocument = (title,model) => {
+  const theme=SLIDE_THEMES[model.theme]||SLIDE_THEMES.blue;
+  const deckSlides=model.slides||[];
+  const slides=deckSlides.map((slide,index)=>
+    '<section class="slide '+(slide.layout==="title"?"title-slide":slide.layout==="quote"?"quote-slide":"content-slide")+'">'+
+    '<div class="eyebrow">'+escapedHtml(title)+' · '+(index+1)+' / '+deckSlides.length+'</div>'+
+    '<h1>'+escapedHtml(slide.title||"Untitled slide")+'</h1>'+
+    '<div class="slide-body">'+escapedHtml(slide.body||"").replace(/\r?\n/g,"<br>")+'</div>'+
+    '<div class="slide-accent"></div></section>'
+  ).join("");
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+escapedHtml(title)+'</title><style>'+
+    '*{box-sizing:border-box}html,body{margin:0;background:'+theme.background+';color:'+theme.text+';font-family:"Segoe UI",Arial,sans-serif;scroll-snap-type:y mandatory}'+
+    '.slide{position:relative;width:100%;min-height:100vh;min-height:100svh;padding:8vh 10vw 10vh;display:flex;flex-direction:column;justify-content:center;page-break-after:always;break-after:page;scroll-snap-align:start;background:'+theme.background+';overflow:hidden}'+
+    '.eyebrow{font-size:clamp(12px,1.3vw,18px);letter-spacing:.12em;text-transform:uppercase;color:'+theme.accent+';font-weight:700;margin-bottom:5vh}'+
+    'h1{font-size:clamp(34px,6vw,78px);line-height:1.05;letter-spacing:-.04em;margin:0 0 3vh;font-weight:750;max-width:15ch}'+
+    '.slide-body{font-size:clamp(18px,2.3vw,30px);line-height:1.45;white-space:normal;max-width:34em}'+
+    '.title-slide h1,.title-slide .slide-body{text-align:center;max-width:100%;margin-left:auto;margin-right:auto}'+
+    '.title-slide .eyebrow{text-align:center}'+
+    '.quote-slide h1{font-size:clamp(26px,4vw,54px);font-weight:650;max-width:22ch}'+
+    '.quote-slide .slide-body{font-size:clamp(16px,1.8vw,24px);opacity:.85}'+
+    '.slide-accent{position:absolute;bottom:0;left:0;width:100%;height:12px;background:'+theme.accent+'}'+
+    '@media print{html,body{background:#fff;scroll-snap-type:none}.slide{height:7.5in;min-height:0;width:10in;padding:.7in 1in;background:'+theme.background+'!important;print-color-adjust:exact;-webkit-print-color-adjust:exact;overflow:hidden}.slide-accent{height:8px}}'+
+    '</style></head><body>'+slides+'</body></html>';
+};
+function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
+  const [record,setRecord]=useState(null);
+  const [title,setTitle]=useState("");
+  const [slides,setSlides]=useState([]);
+  const [theme,setTheme]=useState("blue");
+  const [selectedId,setSelectedId]=useState("");
+  const [ready,setReady]=useState(false);
+  const [dirty,setDirty]=useState(false);
+  const [status,setStatus]=useState("Loading presentation…");
+  const [lastSaved,setLastSaved]=useState("");
+  const [error,setError]=useState("");
+  const [presenting,setPresenting]=useState(false);
+  const recordRef=useRef(null),titleRef=useRef(""),slidesRef=useRef([]),themeRef=useRef("blue"),modelRef=useRef(null);
+  const readyRef=useRef(false),dirtyRef=useRef(false),saveQueue=useRef(Promise.resolve()),saveVersion=useRef(0),loadGeneration=useRef(0);
+  const themeValue=SLIDE_THEMES[theme]||SLIDE_THEMES.blue;
+  titleRef.current=title;slidesRef.current=slides;themeRef.current=theme;
+  modelRef.current={version:1,theme,slides};
+  const currentModel=()=>modelRef.current||{version:1,theme:"blue",slides:[]};
+  const currentIndex=Math.max(0,slides.findIndex(slide=>slide.id===selectedId));
+  const currentSlide=slides[currentIndex]||slides[0]||null;
+  const markDirty=()=>{dirtyRef.current=true;setDirty(true);setStatus("Unsaved changes");};
+  const changedSlides=next=>{
+    slidesRef.current=next;modelRef.current={version:1,theme:themeRef.current,slides:next};
+    setSlides(next);markDirty();
+  };
+  useEffect(()=>{
+    let active=true;const generation=++loadGeneration.current;
+    readyRef.current=false;setReady(false);setError("");setStatus("Loading presentation…");
+    getAll("files").then(async files=>{
+      const found=files.find(file=>file.id===fileId&&isSlides(file));
+      if(!found)throw new Error("This presentation could not be found in this browser.");
+      let parsed;
+      try{parsed=JSON.parse(await found.blob.text());}catch{throw new Error("This presentation is damaged or could not be read.");}
+      if(!active||generation!==loadGeneration.current)return;
+      const fallback=newSlidesModel();
+      const nextSlides=Array.isArray(parsed?.slides)&&parsed.slides.length?parsed.slides.filter(slide=>slide&&typeof slide==="object").map(slide=>({
+        id:typeof slide.id==="string"&&slide.id?slide.id:uid(),
+        layout:["title","content","quote"].includes(slide.layout)?slide.layout:"content",
+        title:String(slide.title||""),
+        body:String(slide.body||""),
+        notes:String(slide.notes||"")
+      })):fallback.slides;
+      const nextTheme=SLIDE_THEMES[parsed?.theme]?parsed.theme:"blue";
+      recordRef.current=found;setRecord(found);titleRef.current=found.name;setTitle(found.name);
+      slidesRef.current=nextSlides;setSlides(nextSlides);themeRef.current=nextTheme;setTheme(nextTheme);
+      setSelectedId(nextSlides[0]?.id||"");
+      modelRef.current={version:1,theme:nextTheme,slides:nextSlides};
+      dirtyRef.current=false;setDirty(false);readyRef.current=true;setReady(true);
+      setLastSaved(found.modifiedAt?new Date(found.modifiedAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"");
+      setStatus("Saved on this device");
+    }).catch(e=>{if(active){setError(e.message||"Could not open presentation.");setStatus("Could not load presentation.");}});
+    return ()=>{active=false;};
+  },[fileId]);
+  const persist=async(nextTitle,model=currentModel())=>{
+    const existing=recordRef.current;
+    if(!existing||!readyRef.current)return false;
+    if(!dirtyRef.current)return true;
+    const version=++saveVersion.current,normalized=(nextTitle||"").trim()||"Untitled presentation";
+    const safeModel={version:1,theme:SLIDE_THEMES[model.theme]?model.theme:"blue",slides:(model.slides||[]).map(slide=>({...slide}))};
+    const blob=new Blob([JSON.stringify(safeModel)],{type:SLIDES_MIME});
+    const updated={...existing,name:normalized,type:SLIDES_MIME,blob,size:blob.size,modifiedAt:Date.now()};
+    setStatus("Saving…");
+    const task=saveQueue.current.catch(()=>{}).then(()=>write("files",updated));saveQueue.current=task;
+    try{
+      await task;if(version!==saveVersion.current)return true;
+      recordRef.current=updated;setRecord(updated);setError("");
+      if(onSaved)await onSaved();if(version!==saveVersion.current)return true;
+      if(normalized===((titleRef.current||"").trim()||"Untitled presentation")&&JSON.stringify(safeModel)===JSON.stringify(currentModel())){
+        dirtyRef.current=false;setDirty(false);setStatus("Saved on this device");
+        setLastSaved(new Date(updated.modifiedAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}));
+      }else setStatus("Unsaved changes");
+      return true;
+    }catch(e){if(version===saveVersion.current){setStatus("Save failed");setError(e.message||"Could not save presentation.");}return false;}
+  };
+  useEffect(()=>{
+    if(!ready||!dirty)return;
+    const snapshot={version:1,theme,slides:slides.map(slide=>({...slide}))};
+    const timer=setTimeout(()=>persist(title,snapshot),650);
+    return ()=>clearTimeout(timer);
+  },[ready,dirty,title,slides,theme]);
+  useEffect(()=>()=> {
+    if(!readyRef.current||!dirtyRef.current||!recordRef.current)return;
+    const existing=recordRef.current,normalized=(titleRef.current||"").trim()||"Untitled presentation";
+    const model={version:1,theme:themeRef.current,slides:slidesRef.current.map(slide=>({...slide}))};
+    const blob=new Blob([JSON.stringify(model)],{type:SLIDES_MIME});
+    const finalRecord={...existing,name:normalized,type:SLIDES_MIME,blob,size:blob.size,modifiedAt:Date.now()};
+    ++saveVersion.current;const task=saveQueue.current.catch(()=>{}).then(()=>write("files",finalRecord));
+    saveQueue.current=task;task.catch(()=>{});
+  },[]);
+  useEffect(()=>{
+    const onKey=event=>{
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="s"){event.preventDefault();persist(titleRef.current,currentModel());return;}
+      if(!presenting)return;
+      if(event.key==="Escape"){event.preventDefault();setPresenting(false);return;}
+      if(event.key==="ArrowRight"||event.key==="PageDown"){event.preventDefault();setSelectedId(slidesRef.current[Math.min(slidesRef.current.length-1,currentIndex+1)]?.id||selectedId);}
+      if(event.key==="ArrowLeft"||event.key==="PageUp"){event.preventDefault();setSelectedId(slidesRef.current[Math.max(0,currentIndex-1)]?.id||selectedId);}
+    };
+    window.addEventListener("keydown",onKey);return ()=>window.removeEventListener("keydown",onKey);
+  },[presenting,currentIndex,selectedId]);
+  const updateCurrent=patch=>{
+    if(!currentSlide)return;
+    changedSlides(slidesRef.current.map(slide=>slide.id===currentSlide.id?{...slide,...patch}:slide));
+  };
+  const addSlide=(layout="content")=>{
+    const next={id:uid(),layout,title:layout==="title"?"Presentation title":layout==="quote"?"A thought worth sharing":"New slide",body:layout==="title"?"Add a short subtitle here.":layout==="quote"?"Add a supporting thought or attribution.":"Add your key points here.\nUse a new line for each point.",notes:""};
+    const nextSlides=[...slidesRef.current.slice(0,currentIndex+1),next,...slidesRef.current.slice(currentIndex+1)];
+    changedSlides(nextSlides);setSelectedId(next.id);
+  };
+  const duplicateSlide=()=>{
+    if(!currentSlide)return;
+    const copy={...currentSlide,id:uid(),title:(currentSlide.title||"Untitled slide")+" (copy)"};
+    const next=[...slidesRef.current.slice(0,currentIndex+1),copy,...slidesRef.current.slice(currentIndex+1)];
+    changedSlides(next);setSelectedId(copy.id);
+  };
+  const moveSlide=direction=>{
+    const target=currentIndex+direction;if(target<0||target>=slidesRef.current.length)return;
+    const next=slidesRef.current.slice(),[item]=next.splice(currentIndex,1);next.splice(target,0,item);
+    changedSlides(next);setSelectedId(item.id);
+  };
+  const deleteSlide=()=>{
+    if(!currentSlide)return;
+    if(slidesRef.current.length===1){
+      if(!window.confirm("Clear this slide's content?"))return;
+      const reset={...currentSlide,layout:"content",title:"",body:"",notes:""};
+      changedSlides([reset]);return;
+    }
+    if(!window.confirm("Delete this slide? This cannot be undone."))return;
+    const next=slidesRef.current.filter(slide=>slide.id!==currentSlide.id);
+    const nextIndex=Math.min(currentIndex,next.length-1);
+    changedSlides(next);setSelectedId(next[nextIndex].id);
+  };
+  const changeTheme=value=>{
+    if(!SLIDE_THEMES[value])return;
+    themeRef.current=value;setTheme(value);modelRef.current={version:1,theme:value,slides:slidesRef.current};markDirty();
+  };
+  const exportAs=format=>{
+    const model=currentModel(),safe=(titleRef.current||"Untitled presentation").trim()||"Untitled presentation";
+    const content=format==="html"?slidesHtmlDocument(safe,model):JSON.stringify(model,null,2);
+    const mime=format==="html"?"text/html;charset=utf-8":"application/json;charset=utf-8";
+    const blob=new Blob([content],{type:mime}),url=URL.createObjectURL(blob),anchor=document.createElement("a");
+    anchor.href=url;anchor.download=safe.replace(/[\\/:*?"<>|]/g,"_")+(format==="html"?".html":".slides.json");
+    document.body.appendChild(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+  };
+  const back=async()=>{
+    const saved=await persist(titleRef.current,currentModel());
+    if(saved)onBack(recordRef.current?.folderId||null);
+  };
+  return <FluentProvider theme={dark?webDarkTheme:webLightTheme}>
+    <div className="ff-slides-app">
+      <header className="ff-slides-header">
+        <Button appearance="subtle" onClick={back} icon={<FolderOpen24Regular/>}>Back to files</Button>
+        <div className="ff-slides-heading">
+          <div className="ff-service-title-row"><Input className="ff-slides-deck-title" size="large" value={title} onChange={(_,data)=>{titleRef.current=data.value;setTitle(data.value);markDirty();}} placeholder="Untitled presentation" aria-label="Presentation title"/><span className="ff-inline-new-tag">NEW</span></div>
+          <Text size={100} className="ff-slides-status">{status}{lastSaved&&status==="Saved on this device"?" · "+lastSaved:""}</Text>
+        </div>
+        <div className="ff-slides-header-actions">
+          <Button appearance="secondary" onClick={()=>onCopyLink("slides",record)} disabled={!record}>Copy link</Button>
+          <Menu><MenuTrigger disableButtonEnhancement><Button appearance="secondary" icon={<ArrowDownload24Regular/>}>Export</Button></MenuTrigger><MenuPopover><MenuList>
+            <MenuItem onClick={()=>exportAs("html")}>Download HTML presentation</MenuItem>
+            <MenuItem onClick={()=>exportAs("json")}>Download editable Slides JSON</MenuItem>
+            <MenuItem onClick={()=>window.print()}>Print current slide</MenuItem>
+          </MenuList></MenuPopover></Menu>
+          <Button appearance="primary" disabled={!ready||!dirty} onClick={()=>persist(titleRef.current,currentModel())}>Save now</Button>
+        </div>
+      </header>
+      <div className="ff-slides-toolbar" role="toolbar" aria-label="Slides tools">
+        <Button appearance="primary" onClick={()=>addSlide("content")}>+ Add slide</Button>
+        <Menu><MenuTrigger disableButtonEnhancement><Button appearance="secondary">Add layout</Button></MenuTrigger><MenuPopover><MenuList>
+          <MenuItem onClick={()=>addSlide("title")}>Title slide</MenuItem><MenuItem onClick={()=>addSlide("content")}>Content slide</MenuItem><MenuItem onClick={()=>addSlide("quote")}>Quote slide</MenuItem>
+        </MenuList></Menu>
+        <Button appearance="secondary" onClick={duplicateSlide} disabled={!currentSlide}>Duplicate</Button>
+        <Button appearance="subtle" onClick={()=>moveSlide(-1)} disabled={!currentSlide||currentIndex<=0}>Move up</Button>
+        <Button appearance="subtle" onClick={()=>moveSlide(1)} disabled={!currentSlide||currentIndex>=slides.length-1}>Move down</Button>
+        <Button appearance="subtle" onClick={deleteSlide} disabled={!currentSlide}>Delete slide</Button>
+        <span className="ff-slides-toolbar-spacer"/>
+        <label className="ff-slides-theme-control">Theme
+          <select value={theme} onChange={event=>changeTheme(event.target.value)} aria-label="Presentation theme">
+            {Object.entries(SLIDE_THEMES).map(([key,value])=><option key={key} value={key}>{value.name}</option>)}
+          </select>
+        </label>
+        <Button appearance="primary" onClick={()=>setPresenting(true)} disabled={!ready||!slides.length}>Present</Button>
+      </div>
+      <div className="ff-slides-workspace">
+        <aside className="ff-slides-rail" aria-label="Slide list">
+          <div className="ff-slides-rail-heading"><Text weight="semibold">Slides</Text><Caption1>{slides.length} total</Caption1></div>
+          {slides.map((slide,index)=><button key={slide.id} type="button" className={"ff-slide-thumb"+(slide.id===currentSlide?.id?" is-active":"")} onClick={()=>setSelectedId(slide.id)} aria-label={"Select slide "+(index+1)}>
+            <span className="ff-slide-thumb-number">{index+1}</span><strong>{slide.title||"Untitled slide"}</strong><span className="ff-slide-thumb-body">{slide.body||"No body text"}</span>
+          </button>)}
+        </aside>
+        <main className="ff-slides-main">
+          {error&&<MessageBar intent="error"><MessageBarBody>{error}</MessageBarBody></MessageBar>}
+          {!ready?<div className="ff-slides-loading"><Spinner label={error?"Presentation unavailable":"Loading presentation…"}/></div>:currentSlide&&<>
+            <div className="ff-slides-stage-wrap">
+              <div className={"ff-slide-stage layout-"+currentSlide.layout} style={{"--slide-bg":themeValue.background,"--slide-surface":themeValue.surface,"--slide-text":themeValue.text,"--slide-accent":themeValue.accent}}>
+                <div className="ff-slide-stage-eyebrow">{(title||"Untitled presentation").trim()||"Untitled presentation"} <span>· {currentIndex+1} / {slides.length}</span></div>
+                <Input className="ff-slide-stage-title" value={currentSlide.title} onChange={(_,data)=>updateCurrent({title:data.value})} placeholder="Slide title" aria-label="Slide title"/>
+                <Textarea className="ff-slide-stage-body" value={currentSlide.body} onChange={(_,data)=>updateCurrent({body:data.value})} placeholder="Add slide content. Use a new line for each point." resize="vertical" aria-label="Slide content"/>
+                <div className="ff-slide-stage-accent"/>
+              </div>
+            </div>
+            <div className="ff-slides-notes">
+              <label htmlFor="ff-slide-speaker-notes">Speaker notes</label>
+              <Textarea id="ff-slide-speaker-notes" value={currentSlide.notes||""} onChange={(_,data)=>updateCurrent({notes:data.value})} placeholder="Notes for the presenter (not shown on the slide)" resize="vertical" aria-label="Speaker notes"/>
+            </div>
+          </>}
+          <footer className="ff-slides-footer"><AppsList24Regular/><Caption1>FluentFile Slides · Saved locally in this browser</Caption1><span className="ff-slides-toolbar-spacer"/><Caption1>Ctrl/⌘+S saves · Use Present to navigate with arrow keys</Caption1></footer>
+        </main>
+      </div>
+      {presenting&&currentSlide&&<div className="ff-slides-present-overlay" role="dialog" aria-modal="true" aria-label="Presentation mode">
+        <header><div><strong>{title||"Untitled presentation"}</strong><span> · {currentIndex+1} / {slides.length}</span></div><Button appearance="secondary" onClick={()=>setPresenting(false)}>Exit presentation</Button></header>
+        <main className={"ff-slide-present-stage layout-"+currentSlide.layout} style={{"--slide-bg":themeValue.background,"--slide-surface":themeValue.surface,"--slide-text":themeValue.text,"--slide-accent":themeValue.accent}}>
+          <div className="ff-slide-stage-eyebrow">{title||"Untitled presentation"} <span>· {currentIndex+1} / {slides.length}</span></div>
+          <h1>{currentSlide.title||"Untitled slide"}</h1>
+          <div className="ff-slide-present-body">{currentSlide.body}</div><div className="ff-slide-stage-accent"/>
+        </main>
+        <footer><Button appearance="secondary" disabled={currentIndex<=0} onClick={()=>setSelectedId(slides[currentIndex-1].id)}>Previous</Button><Text>{currentIndex+1} of {slides.length}</Text><Button appearance="primary" disabled={currentIndex>=slides.length-1} onClick={()=>setSelectedId(slides[currentIndex+1].id)}>Next</Button></footer>
+      </div>}
+    </div>
+  </FluentProvider>;
+}
+
 function App() {
   const s = useStyles();
   const [files,setFiles] = useState([]);
@@ -877,6 +1137,7 @@ function App() {
   const [folderId,setFolderId] = useState(null);
   const [documentId,setDocumentId] = useState(null);
   const [canvasId,setCanvasId] = useState(null);
+  const [slidesId,setSlidesId] = useState(null);
   const [query,setQuery] = useState("");
   const [sortBy,setSortBy] = useState("modified");
   const [fileFilter,setFileFilter] = useState("all");
@@ -928,7 +1189,7 @@ function App() {
     if(!raw)return;
     const parts=raw.split("/").filter(Boolean).map(part=>{try{return decodeURIComponent(part);}catch{return part;}});
     try {
-      if((parts[0]==="file"||parts[0]==="doc"||parts[0]==="canvas")&&parts[1]){
+      if((parts[0]==="file"||parts[0]==="doc"||parts[0]==="canvas"||parts[0]==="slide")&&parts[1]){
         const all=await getAll("files"),file=all.find(item=>item.id===parts[1]);
         if(!file){setView("files");setFolderId(null);setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");setDocumentId(null);toast("This file link isn't available in this browser's local storage.");return;}
         setFolderId(file.folderId||null);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");
@@ -942,16 +1203,21 @@ function App() {
           if(parts[0]!=="canvas"){setView("files");setCanvasId(null);toast("Open this item from its canvas link.");return;}
           setView("canvas");setCanvasId(file.id);setDocumentId(null);return;
         }
-        if(parts[0]==="doc"||parts[0]==="canvas"){setView("files");setDocumentId(null);setCanvasId(null);toast("This link does not point to the expected item type.");return;}
-        setDocumentId(null);setCanvasId(null);setView(isDeleted(file)?"trash":"files");await showPreview(file);return;
+        if(isSlides(file)){
+          if(isDeleted(file)){setView("trash");setSlidesId(null);toast("This presentation is in the recycle bin. Restore it before editing.");return;}
+          if(parts[0]!=="slide"){setView("files");setSlidesId(null);toast("Open this item from its Slides link.");return;}
+          setView("slide");setSlidesId(file.id);setDocumentId(null);setCanvasId(null);return;
+        }
+        if(parts[0]==="doc"||parts[0]==="canvas"||parts[0]==="slide"){setView("files");setDocumentId(null);setCanvasId(null);setSlidesId(null);toast("This link does not point to the expected item type.");return;}
+        setDocumentId(null);setCanvasId(null);setSlidesId(null);setView(isDeleted(file)?"trash":"files");await showPreview(file);return;
       }
       if(parts[0]==="folder"&&parts[1]){
         const all=await getAll("folders"),folder=all.find(item=>item.id===parts[1]);
         if(!folder){setView("files");setFolderId(null);setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");toast("This folder link is no longer available in this browser.");return;}
         setView("files");setFolderId(folder.id);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");return;
       }
-      const next=["files","recent","favorites","trash","docs","canvases"].includes(parts[0])?parts[0]:"files";
-      setView(next);setFileFilter("all");setDocumentId(null);setCanvasId(null);setFolderId(null);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");
+      const next=["files","recent","favorites","trash","docs","canvases","slides"].includes(parts[0])?parts[0]:"files";
+      setView(next);setFileFilter("all");setDocumentId(null);setCanvasId(null);setSlidesId(null);setFolderId(null);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");
     } catch(error) { setStorageError(error.message||"Could not open this link."); }
   };
   const setRoute = path => {
@@ -966,7 +1232,7 @@ function App() {
     return ()=>window.removeEventListener("hashchange",onHashChange);
   },[]);
   const copyLink = async (type,item) => {
-    const path=type==="folder"?"folder/"+encodeURIComponent(item.id):type==="doc"?"doc/"+encodeURIComponent(item.id):type==="canvas"?"canvas/"+encodeURIComponent(item.id):"file/"+encodeURIComponent(item.id);
+    const path=type==="folder"?"folder/"+encodeURIComponent(item.id):type==="doc"?"doc/"+encodeURIComponent(item.id):type==="canvas"?"canvas/"+encodeURIComponent(item.id):type==="slides"?"slide/"+encodeURIComponent(item.id):"file/"+encodeURIComponent(item.id);
     const url=window.location.origin+window.location.pathname+"#/"+path;
     try {
       if(navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
@@ -1014,6 +1280,7 @@ function App() {
     if(isDeleted(f))return false;
     if(view==="docs"&&!isDocument(f))return false;
     if(view==="canvases"&&!isCanvas(f))return false;
+    if(view==="slides"&&!isSlides(f))return false;
     if(view==="favorites"&&!f.favorite)return false;
     if(view==="files"&&!q&&f.folderId!==folderId)return false;
     return true;
@@ -1034,7 +1301,7 @@ function App() {
   const toggleSelected=(id,checked)=>setSelectedIds(ids=>checked?Array.from(new Set([...ids,id])):ids.filter(existing=>existing!==id));
   const toggleShownSelection=()=>setSelectedIds(ids=>allShownSelected?ids.filter(id=>!shownFiles.some(f=>f.id===id)):Array.from(new Set([...ids,...shownFiles.map(f=>f.id)])));
 
-  const goView = name => {setSelectedIds([]);setFileFilter("all");setQuery("");setDocumentId(null);setRoute(name);};
+  const goView = name => {setSelectedIds([]);setFileFilter("all");setQuery("");setDocumentId(null);setCanvasId(null);setSlidesId(null);setRoute(name);};
   const openEditor = (type,target=null) => {setDialog(type);setDialogTarget(target);setDialogName(target?.name||"");setMoveTarget(type==="move"&&target?.folderId?target.folderId:"root");};
   const closeDialog = () => {setDialog(null);setDialogTarget(null);setDialogName("");};
   const createFolder = async () => {
@@ -1071,16 +1338,23 @@ function App() {
       await write("files",record);await refresh();setCanvasId(record.id);setRoute("canvas/"+encodeURIComponent(record.id));
     } catch(error){toast("Could not create canvas. "+(error.message||"Check browser storage quota."));}
   };
+  const createSlides = async () => {
+    try {
+      const model=newSlidesModel(),blob=new Blob([JSON.stringify(model)],{type:SLIDES_MIME}),now=Date.now();
+      const record={id:uid(),name:"Untitled presentation",type:SLIDES_MIME,size:blob.size,modifiedAt:now,createdAt:now,folderId:view==="files"?folderId:null,blob,favorite:false,deletedAt:null};
+      await write("files",record);await refresh();setSlidesId(record.id);setRoute("slide/"+encodeURIComponent(record.id));
+    } catch(error){toast("Could not create presentation. "+(error.message||"Check browser storage quota."));}
+  };
   const download = async file => {
     try{
       const blob=isDocument(file)?new Blob([fullDocumentHtml(file.name,await file.blob.text())],{type:"text/html;charset=utf-8"}):file.blob;
       const url=URL.createObjectURL(blob),a=document.createElement("a");
-      a.href=url;a.download=isDocument(file)?(file.name.toLowerCase().endsWith(".html")?file.name:file.name+".html"):isCanvas(file)?(file.name.replace(/[\\/:*?"<>|]/g,"_")+".canvas.json"):file.name;
+      a.href=url;a.download=isDocument(file)?(file.name.toLowerCase().endsWith(".html")?file.name:file.name+".html"):isCanvas(file)?(file.name.replace(/[\\/:*?"<>|]/g,"_")+".canvas.json"):isSlides(file)?(file.name.replace(/[\\/:*?"<>|]/g,"_")+".slides.json"):file.name;
       document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1200);
     }catch(error){toast("Could not download file. "+(error.message||"Try again."));}
   };
   const preview = async file => {
-    const next="#/"+(isDocument(file)?"doc/":isCanvas(file)?"canvas/":"file/")+encodeURIComponent(file.id);
+    const next="#/"+(isDocument(file)?"doc/":isCanvas(file)?"canvas/":isSlides(file)?"slide/":"file/")+encodeURIComponent(file.id);
     if(window.location.hash===next) await syncRoute();
     else window.location.hash=next;
   };
@@ -1188,6 +1462,7 @@ function App() {
   const fileCard = f => <FileCard key={f.id} file={f} layout={layout} styles={s} onAction={action} onPreview={preview} onCopyLink={copyLink} selected={selectedIds.includes(f.id)} onSelect={toggleSelected}/>;
   if(view==="doc") return <FluentDocEditor key={documentId} fileId={documentId} dark={dark} onBack={parentId=>setRoute(parentId?"folder/"+encodeURIComponent(parentId):"files")} onCopyLink={copyLink} onSaved={refresh}/>;
   if(view==="canvas") return <FluentCanvasEditor key={canvasId} fileId={canvasId} dark={dark} onBack={parentId=>setRoute(parentId?"folder/"+encodeURIComponent(parentId):"canvases")} onCopyLink={copyLink} onSaved={refresh}/>;
+  if(view==="slide") return <FluentSlidesEditor key={slidesId} fileId={slidesId} dark={dark} onBack={parentId=>setRoute(parentId?"folder/"+encodeURIComponent(parentId):"slides")} onCopyLink={copyLink} onSaved={refresh}/>;
   const bulkAction = async mode => {
     const targets=selectedFiles;
     if(!targets.length)return;
@@ -1223,8 +1498,8 @@ function App() {
     const blocked=dialog==="move-folder"&&dialogTarget?folderDescendants(dialogTarget.id):new Set();
     return folders.filter(folder=>!blocked.has(folder.id));
   })();
-  const title = view==="trash"?"Recycle bin":view==="favorites"?"Favorites":view==="recent"?"Recent":view==="docs"?"FluentFile Docs":view==="canvases"?"FluentFile Canvases":folderLabel(folderId);
-  const subtitle = view==="trash"?"Restore deleted files or permanently remove them.":view==="favorites"?"Your starred files in one place.":view==="recent"?"Your most recently changed files.":view==="docs"?"Create, edit, and organize your documents alongside your files.":view==="canvases"?"Draw, sketch, and export artwork from your browser.":"Organize files and folders stored in this browser.";
+  const title = view==="trash"?"Recycle bin":view==="favorites"?"Favorites":view==="recent"?"Recent":view==="docs"?"FluentFile Docs":view==="canvases"?"FluentFile Canvases":view==="slides"?"FluentFile Slides":folderLabel(folderId);
+  const subtitle = view==="trash"?"Restore deleted files or permanently remove them.":view==="favorites"?"Your starred files in one place.":view==="recent"?"Your most recently changed files.":view==="docs"?"Create, edit, and organize your documents alongside your files.":view==="canvases"?"Draw, sketch, and export artwork from your browser.":view==="slides"?"Build, present, and export slide decks from your browser.":"Organize files and folders stored in this browser."
 
   return <FluentProvider theme={dark?webDarkTheme:webLightTheme}>
     <div className={s.app+" ff-app"}>
@@ -1238,6 +1513,7 @@ function App() {
           <Button className={s.navButton+" ff-nav-button "+(view==="recent"?s.navActive:"")} appearance="subtle" icon={<Clock24Regular/>} onClick={()=>goView("recent")}><span className="ff-nav-text">Recent</span></Button>
           <Button className={s.navButton+" ff-nav-button ff-new-service "+(view==="docs"?s.navActive:"")} appearance="subtle" icon={<Document24Regular/>} onClick={()=>goView("docs")}><span className="ff-nav-text">Docs</span><span aria-hidden="true" className="ff-new-service-badge">NEW</span></Button>
           <Button className={s.navButton+" ff-nav-button ff-new-service "+(view==="canvases"?s.navActive:"")} appearance="subtle" icon={<PaintBrush24Regular/>} onClick={()=>goView("canvases")}><span className="ff-nav-text">Canvases</span><span aria-hidden="true" className="ff-new-service-badge">NEW</span></Button>
+          <Button className={s.navButton+" ff-nav-button ff-new-service "+(view==="slides"?s.navActive:"")} appearance="subtle" icon={<AppsList24Regular/>} onClick={()=>goView("slides")}><span className="ff-nav-text">Slides</span><span aria-hidden="true" className="ff-new-service-badge">NEW</span></Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="favorites"?s.navActive:"")} appearance="subtle" icon={<Star24Regular/>} onClick={()=>goView("favorites")}><span className="ff-nav-text">Favorites</span>{favCount>0&&<Badge size="small">{favCount}</Badge>}</Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="trash"?s.navActive:"")} appearance="subtle" icon={<Delete24Regular/>} onClick={()=>goView("trash")}><span className="ff-nav-text">Recycle bin</span>{trashFiles.length>0&&<Badge size="small">{trashFiles.length}</Badge>}</Button>
         </nav></section>
@@ -1261,10 +1537,11 @@ function App() {
         <div className={s.page+" ff-page"}>
           {storageError&&<MessageBar intent="error"><MessageBarBody><strong>Browser storage is unavailable. </strong>{storageError} Check your browser's site storage settings and reload.</MessageBarBody></MessageBar>}
           <div className={s.pageHead}>
-            <div className={s.titleBlock}><Caption1>WORKSPACE / {view==="files"?"MY FILES":view.toUpperCase()}</Caption1><div className="ff-workspace-title-row"><Title2>{title}</Title2>{(view==="docs"||view==="canvases")&&<Badge size="small" color="informative">NEW</Badge>}</div><Body1>{subtitle}</Body1></div>
-            {(view==="files"||view==="docs"||view==="canvases")&&<div className={s.actions}>
+            <div className={s.titleBlock}><Caption1>WORKSPACE / {view==="files"?"MY FILES":view.toUpperCase()}</Caption1><div className="ff-workspace-title-row"><Title2>{title}</Title2>{(view==="docs"||view==="canvases"||view==="slides")&&<Badge size="small" color="informative">NEW</Badge>}</div><Body1>{subtitle}</Body1></div>
+            {(view==="files"||view==="docs"||view==="canvases"||view==="slides")&&<div className={s.actions}>
               {(view==="files"||view==="docs")&&<Button appearance="secondary" icon={<Document24Regular/>} onClick={createDocument}>New document <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button>}
               {(view==="files"||view==="canvases")&&<Button appearance="secondary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>New canvas <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button>}
+              {(view==="files"||view==="slides")&&<Button appearance="secondary" icon={<AppsList24Regular/>} onClick={createSlides}>New presentation <span className="ff-inline-new-tag">NEW</span></Button>}
               {view==="files"&&<><Button appearance="secondary" icon={<FolderAdd24Regular/>} onClick={()=>openEditor("new-folder")}>New folder</Button><Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>inputRef.current?.click()}>Upload files</Button><input ref={inputRef} type="file" multiple hidden onChange={e=>{addFiles(e.target.files);e.target.value="";}}/></>}
             </div>}
           </div>
@@ -1273,7 +1550,7 @@ function App() {
           </div>}
           {view==="files"&&<div className={s.breadcrumbs}><Button size="small" appearance="subtle" onClick={()=>{setQuery("");setRoute("files");}}>My files</Button>{folderPath.map(f=><React.Fragment key={f.id}><ChevronRight12Regular/><Button size="small" appearance="subtle" onClick={()=>{setQuery("");setRoute("folder/"+encodeURIComponent(f.id));}}>{f.name}</Button></React.Fragment>)}</div>}
           <div className={s.contentBar}><Text size={200}>{shownFolders.length} folder{shownFolders.length===1?"":"s"} · {shownFiles.length} file{shownFiles.length===1?"":"s"}</Text><div className={s.controls}>
-{view!=="docs"&&view!=="canvases"&&<Dropdown size="small" value={fileFilter==="all"?"All types":fileFilter==="image"?"Images":fileFilter==="documents"?"Documents":fileFilter==="video"?"Videos":fileFilter==="audio"?"Audio":"Other files"} selectedOptions={[fileFilter]} onOptionSelect={(_,data)=>{setSelectedIds([]);setFileFilter(data.optionValue||"all");}} aria-label="Filter by file type"><Option value="all">All types</Option><Option value="image">Images</Option><Option value="documents">Documents</Option><Option value="video">Videos</Option><Option value="audio">Audio</Option><Option value="other">Other files</Option></Dropdown>}
+{view!=="docs"&&view!=="canvases"&&view!=="slides"&&<Dropdown size="small" value={fileFilter==="all"?"All types":fileFilter==="image"?"Images":fileFilter==="documents"?"Documents":fileFilter==="video"?"Videos":fileFilter==="audio"?"Audio":"Other files"} selectedOptions={[fileFilter]} onOptionSelect={(_,data)=>{setSelectedIds([]);setFileFilter(data.optionValue||"all");}} aria-label="Filter by file type"><Option value="all">All types</Option><Option value="image">Images</Option><Option value="documents">Documents</Option><Option value="video">Videos</Option><Option value="audio">Audio</Option><Option value="other">Other files</Option></Dropdown>}
             <Dropdown size="small" value={sortBy==="modified"?"Last modified":sortBy==="name"?"Name":"Size"} selectedOptions={[sortBy]} onOptionSelect={(_,data)=>setSortBy(data.optionValue||"modified")} aria-label="Sort files"><Option value="modified">Last modified</Option><Option value="name">Name</Option><Option value="size">Size</Option></Dropdown>
             <Toolbar aria-label="Display options"><ToolbarButton title="Grid view" aria-label="Grid view" icon={<Grid24Regular/>} appearance={layout==="grid"?"primary":"subtle"} onClick={()=>setLayout("grid")}/><ToolbarButton title="List view" aria-label="List view" icon={<AppsList24Regular/>} appearance={layout==="list"?"primary":"subtle"} onClick={()=>setLayout("list")}/></Toolbar>
           </div></div>
@@ -1300,12 +1577,13 @@ function App() {
               </Card>)}</div></section>}
               {shownFiles.length>0&&<section className={s.section}><Title3 className={s.sectionTitle}>{view==="trash"?"Deleted files":shownFolders.length?"Files":"All files"}</Title3><div className={(layout==="list"?s.fileGrid+" "+s.fileGridList:s.fileGrid)+" ff-file-grid"}>{shownFiles.map(fileCard)}</div></section>}
             </div>
-            {!shownFolders.length&&!shownFiles.length&&<div className={s.empty}><div className={s.emptyMark}>{view==="trash"?<Delete24Regular fontSize={30}/>:view==="favorites"?<Star24Regular fontSize={30}/>:view==="canvases"?<PaintBrush24Regular fontSize={30}/>:<FolderOpen24Regular fontSize={30}/>}</div>
-              <Title3>{query?"No matches found":view==="trash"?"Recycle bin is empty":view==="favorites"?"No favorites yet":view==="recent"?"No recent files":view==="docs"?"No documents yet":view==="canvases"?"No canvases yet":"Start with your first file"}</Title3>
-              <Body1>{query?"Try another search or clear the search box.":view==="trash"?"Deleted files appear here so you can restore them.":view==="favorites"?"Use the star action on a file to keep it here.":view==="recent"?"Recently changed files will appear here.":view==="docs"?"Create your first document in FluentFile Docs.":view==="canvases"?"Create a blank canvas and start drawing, sketching, or planning.":"Upload files from your device or create a folder to stay organized."}</Body1>
+            {!shownFolders.length&&!shownFiles.length&&<div className={s.empty}><div className={s.emptyMark}>{view==="trash"?<Delete24Regular fontSize={30}/>:view==="favorites"?<Star24Regular fontSize={30}/>:view==="canvases"?<PaintBrush24Regular fontSize={30}/>:view==="slides"?<AppsList24Regular fontSize={30}/>:<FolderOpen24Regular fontSize={30}/>}</div>
+              <Title3>{query?"No matches found":view==="trash"?"Recycle bin is empty":view==="favorites"?"No favorites yet":view==="recent"?"No recent files":view==="docs"?"No documents yet":view==="canvases"?"No canvases yet":view==="slides"?"No presentations yet":"Start with your first file"}</Title3>
+              <Body1>{query?"Try another search or clear the search box.":view==="trash"?"Deleted files appear here so you can restore them.":view==="favorites"?"Use the star action on a file to keep it here.":view==="recent"?"Recently changed files will appear here.":view==="docs"?"Create your first document in FluentFile Docs.":view==="canvases"?"Create a blank canvas and start drawing, sketching, or planning.":view==="slides"?"Create your first presentation in FluentFile Slides.":"Upload files from your device or create a folder to stay organized."}</Body1>
               {view==="docs"&&!query&&<Button appearance="primary" icon={<Document24Regular/>} onClick={createDocument}>Create document <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button>}
               {view==="canvases"&&!query&&<Button appearance="primary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>Create canvas <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button>}
-              {view==="files"&&!query&&<div className={s.actions}><Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>inputRef.current?.click()}>Upload files</Button><Button appearance="secondary" icon={<FolderAdd24Regular/>} onClick={()=>openEditor("new-folder")}>Create folder</Button><Button appearance="secondary" icon={<Document24Regular/>} onClick={createDocument}>Create document <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button><Button appearance="secondary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>Create canvas <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button></div>}
+              {view==="slides"&&!query&&<Button appearance="primary" icon={<AppsList24Regular/>} onClick={createSlides}>Create presentation <span className="ff-inline-new-tag">NEW</span></Button>}
+              {view==="files"&&!query&&<div className={s.actions}><Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>inputRef.current?.click()}>Upload files</Button><Button appearance="secondary" icon={<FolderAdd24Regular/>} onClick={()=>openEditor("new-folder")}>Create folder</Button><Button appearance="secondary" icon={<Document24Regular/>} onClick={createDocument}>Create document <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button><Button appearance="secondary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>Create canvas <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button><Button appearance="secondary" icon={<AppsList24Regular/>} onClick={createSlides}>Create presentation <span className="ff-inline-new-tag">NEW</span></Button></div>}
               {query&&<Button appearance="secondary" onClick={()=>setQuery("")}>Clear search</Button>}
             </div>}
           </>}

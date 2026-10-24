@@ -57,3 +57,13 @@ html,body,#root{min-height:100%;margin:0}body{font-family:"Segoe UI",-apple-syst
 /* Task text and checkbox must share a row; task paragraphs intentionally have no default paragraph margin. */
 .ff-doc-editor-content .tiptap ul[data-type="taskList"] li[data-type="taskItem"] > label,
 .ff-doc-editor-content .tiptap ul[data-type="taskList"] li[data-type="taskItem"] > div { align-self:flex-start; }
+
+/* Use extension-provided classes for reliable task layout, even when HTML is normalized. */
+.ff-doc-editor-content .tiptap ul.ff-task-list { list-style:none!important; padding:0!important; margin:.6em 0; }
+.ff-doc-editor-content .tiptap li.ff-task-item { display:grid!important; grid-template-columns:18px minmax(0,1fr)!important; align-items:start!important; column-gap:8px!important; width:100%; margin:.25em 0!important; padding:0!important; list-style:none!important; }
+.ff-doc-editor-content .tiptap li.ff-task-item > label { grid-column:1!important; grid-row:1!important; display:flex!important; align-items:flex-start!important; justify-content:flex-start!important; width:18px!important; min-width:18px!important; margin:3px 0 0!important; padding:0!important; line-height:1!important; }
+.ff-doc-editor-content .tiptap li.ff-task-item > label input[type="checkbox"] { display:block!important; position:static!important; width:16px!important; height:16px!important; min-width:16px!important; max-width:16px!important; margin:0!important; padding:0!important; float:none!important; }
+.ff-doc-editor-content .tiptap li.ff-task-item > label span { display:none!important; }
+.ff-doc-editor-content .tiptap li.ff-task-item > div { grid-column:2!important; grid-row:1!important; display:block!important; min-width:0!important; width:auto!important; margin:0!important; padding:0!important; float:none!important; }
+.ff-doc-editor-content .tiptap li.ff-task-item > div > p { margin:0!important; padding:0!important; }
+.ff-doc-editor-content .tiptap li.ff-task-item > div > p + p { margin-top:.6em!important; }

@@ -11,7 +11,9 @@ FluentFile is a browser-local file manager built with Microsoft's official **Flu
 - Search by name and filter by file type; sort by name, size, or modified date.
 - Grid and list layouts, previews, and downloads for common file types.
 - Select multiple files for bulk favorite, recycle-bin, restore, permanent-delete, or ZIP-download actions.
-- FluentFile Docs editor with headings, emphasis, lists, quotes, code blocks, links, undo/redo, autosave, and HTML/plain-text export.
+- FluentFile Docs editor with headings, emphasis, bulleted/numbered lists, interactive checklists, quotes, code blocks, links, horizontal dividers, and date/time insertion.
+- Document outline navigation for heading-based jumping, find/replace across inline formatting, live word/character counts, and estimated reading time.
+- Autosave with ordered writes, Ctrl/⌘+S manual save, undo/redo, clean print layout, and HTML/Markdown/plain-text export.
 - ZIP backups and folder exports preserve FluentFile Docs metadata so restored docs remain editable.
 - Duplicate files, folder ZIP export, and full ZIP backup/restore.
 - Favorites, recent files, and recycle bin.

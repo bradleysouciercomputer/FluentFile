@@ -275,6 +275,7 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
   const [title,setTitle]=useState("");
   const [html,setHtml]=useState("<p></p>");
   const [ready,setReady]=useState(false);
+  const [dirty,setDirty]=useState(false);
   const [status,setStatus]=useState("Loading document…");
   const [lastSaved,setLastSaved]=useState("");
   const [error,setError]=useState("");
@@ -284,7 +285,8 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
   const [findCaseSensitive,setFindCaseSensitive]=useState(false);
   const [findMessage,setFindMessage]=useState("");
   const recordRef=useRef(null), titleRef=useRef(title), htmlRef=useRef(html), readyRef=useRef(false), loadGeneration=useRef(0);
-  const saveQueue=useRef(Promise.resolve()), saveVersion=useRef(0);
+  const saveQueue=useRef(Promise.resolve()), saveVersion=useRef(0), dirtyRef=useRef(false);
+  const markDirty=()=>{dirtyRef.current=true;setDirty(true);};
   titleRef.current=title;htmlRef.current=html;
   const editor=useEditor({
     extensions:[StarterKit.configure({heading:{levels:[1,2,3]}})],
@@ -292,6 +294,7 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
     onUpdate:({editor})=>{
       if(!readyRef.current)return;
       setHtml(editor.getHTML());
+      markDirty();
       setStatus("Unsaved changes");
     },
     editorProps:{attributes:{"class":"tiptap","aria-label":"Document editor","spellcheck":"true"}}
@@ -308,6 +311,7 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
       if(!active||generation!==loadGeneration.current)return;
       recordRef.current=found;setRecord(found);setTitle(found.name);setHtml(content);
       editor.commands.setContent(content,{emitUpdate:false});
+      dirtyRef.current=false;setDirty(false);
       readyRef.current=true;setReady(true);
       setLastSaved(found.modifiedAt?new Date(found.modifiedAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"");
       setStatus("Saved on this device");
@@ -317,6 +321,7 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
   const persist=async(nextTitle,nextHtml)=>{
     const existing=recordRef.current;
     if(!existing||!readyRef.current)return false;
+    if(!dirtyRef.current)return true;
     const version=++saveVersion.current;
     const normalized=(nextTitle||"").trim()||"Untitled document";
     const cleanHtml=sanitizeDocHtml(nextHtml||"<p></p>");
@@ -332,8 +337,12 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
       setError("");
       if(onSaved) await onSaved();
       if(version!==saveVersion.current)return true;
-      setStatus("Saved on this device");
-      setLastSaved(new Date(updated.modifiedAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}));
+      const sameAsCurrent=normalized===(((titleRef.current||"").trim())||"Untitled document")&&cleanHtml===sanitizeDocHtml(htmlRef.current||"<p></p>");
+      if(sameAsCurrent){
+        dirtyRef.current=false;setDirty(false);
+        setStatus("Saved on this device");
+        setLastSaved(new Date(updated.modifiedAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}));
+      }else setStatus("Unsaved changes");
       return true;
     }catch(e){
       if(version===saveVersion.current){setStatus("Save failed");setError(e.message||"Could not save document.");}
@@ -341,12 +350,12 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
     }
   };
   useEffect(()=>{
-    if(!ready||!recordRef.current)return;
+    if(!ready||!dirty||!recordRef.current)return;
     const timer=setTimeout(()=>{persist(title,html);},650);
     return ()=>clearTimeout(timer);
   },[title,html,ready]);
   useEffect(()=>()=> {
-    if(!readyRef.current||!recordRef.current)return;
+    if(!readyRef.current||!recordRef.current||!dirtyRef.current)return;
     const existing=recordRef.current;
     const normalized=(titleRef.current||"").trim()||"Untitled document";
     const blob=new Blob([sanitizeDocHtml(htmlRef.current||"<p></p>")],{type:DOC_MIME});
@@ -453,7 +462,7 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
       <header className={s.header+" ff-doc-header"}>
         <Button appearance="subtle" onClick={async()=>{if(record){const saved=await persist(titleRef.current,htmlRef.current);if(saved)onBack(record.folderId);}else onBack(null);}} icon={<FolderOpen24Regular/>}>Back to files</Button>
         <div style={{minWidth:0,display:"grid",gap:2}}>
-          <Input className={s.titleInput+" ff-doc-title-input"} size="large" value={title} onChange={(_,data)=>setTitle(data.value)} placeholder="Untitled document" aria-label="Document title"/>
+          <Input className={s.titleInput+" ff-doc-title-input"} size="large" value={title} onChange={(_,data)=>{setTitle(data.value);markDirty();}} placeholder="Untitled document" aria-label="Document title"/>
           <Text size={100} className={s.status}>{status}{lastSaved&&status==="Saved on this device"?" · "+lastSaved:""}</Text>
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>

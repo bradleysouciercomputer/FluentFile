@@ -37,16 +37,23 @@ html,body,#root{min-height:100%;margin:0}body{font-family:"Segoe UI",-apple-syst
   .ff-doc-editor-content .tiptap a { color:#000!important; }
 }
 /* FluentFile Docs checklist and outline enhancements */
-.ff-doc-editor-content .tiptap ul[data-type="taskList"] { list-style:none; padding-left:0; }
-.ff-doc-editor-content .tiptap li[data-type="taskItem"] { display:flex; align-items:flex-start; gap:8px; margin:.35em 0; }
-.ff-doc-editor-content .tiptap li[data-type="taskItem"] > label { flex:0 0 auto; display:inline-flex; align-items:center; margin-top:.25em; user-select:none; }
-.ff-doc-editor-content .tiptap li[data-type="taskItem"] > label input[type="checkbox"] { width:16px; height:16px; margin:0; accent-color:var(--colorBrandForeground1, #0f6cbd); cursor:pointer; }
-.ff-doc-editor-content .tiptap li[data-type="taskItem"] > div { flex:1; min-width:0; }
-.ff-doc-editor-content .tiptap li[data-type="taskItem"][data-checked="true"] > div { color:var(--colorNeutralForeground3, #616161); }
-.ff-doc-editor-content .tiptap li[data-type="taskItem"][data-checked="true"] > div p { text-decoration:line-through; }
+.ff-doc-editor-content .tiptap ul[data-type="taskList"] { list-style:none!important; padding-inline-start:0!important; margin:.6em 0; }
+.ff-doc-editor-content .tiptap ul[data-type="taskList"] li[data-type="taskItem"] { display:flex!important; flex-direction:row!important; align-items:flex-start!important; gap:8px!important; width:100%; margin:.25em 0; padding:0; }
+.ff-doc-editor-content .tiptap ul[data-type="taskList"] li[data-type="taskItem"] > label { flex:0 0 18px!important; width:18px; display:inline-flex!important; align-items:flex-start; margin:2px 0 0!important; padding:0; line-height:1; user-select:none; }
+.ff-doc-editor-content .tiptap ul[data-type="taskList"] li[data-type="taskItem"] > label input[type="checkbox"] { display:block; width:16px; height:16px; min-width:16px; margin:0; accent-color:var(--colorBrandForeground1, #0f6cbd); cursor:pointer; }
+.ff-doc-editor-content .tiptap ul[data-type="taskList"] li[data-type="taskItem"] > label span { display:none; }
+.ff-doc-editor-content .tiptap ul[data-type="taskList"] li[data-type="taskItem"] > div { display:block; flex:1 1 auto!important; min-width:0; margin:0; padding:0; }
+.ff-doc-editor-content .tiptap ul[data-type="taskList"] li[data-type="taskItem"] > div > p { margin:0!important; }
+.ff-doc-editor-content .tiptap ul[data-type="taskList"] li[data-type="taskItem"] > div > p + p { margin-top:.6em!important; }
+.ff-doc-editor-content .tiptap ul[data-type="taskList"] li[data-type="taskItem"][data-checked="true"] > div { color:var(--colorNeutralForeground3, #616161); }
+.ff-doc-editor-content .tiptap ul[data-type="taskList"] li[data-type="taskItem"][data-checked="true"] > div p { text-decoration:line-through; }
 .ff-doc-outline-panel { max-height:180px; overflow-y:auto; }
 .ff-doc-outline-panel button { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 @media print {
   .ff-doc-editor-content .tiptap ul[data-type="taskList"] { padding-left:0!important; }
   .ff-doc-editor-content .tiptap li[data-type="taskItem"] > label input[type="checkbox"] { appearance:auto; print-color-adjust:exact; }
 }
+
+/* Task text and checkbox must share a row; task paragraphs intentionally have no default paragraph margin. */
+.ff-doc-editor-content .tiptap ul[data-type="taskList"] li[data-type="taskItem"] > label,
+.ff-doc-editor-content .tiptap ul[data-type="taskList"] li[data-type="taskItem"] > div { align-self:flex-start; }

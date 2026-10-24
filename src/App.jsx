@@ -400,22 +400,7 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
   const run=command=>{if(editor)command(editor.chain().focus()).run();};
   const findMatches=()=>{
     if(!editor||!findText)return [];
-    const escaped=findText.replace(/[.*+?^$()|[\]\\{}]/g,"\\  const findMatches=()=>{
-    const query=findText;
-    if(!editor||!query)return [];
-    const normalize=value=>findCaseSensitive?value:value.toLocaleLowerCase();
-    const needle=normalize(query),matches=[];
-    editor.state.doc.descendants((node,pos)=>{
-      if(!node.isText||!node.text)return;
-      const haystack=normalize(node.text);
-      let cursor=0,index;
-      while((index=haystack.indexOf(needle,cursor))!==-1){
-        matches.push({from:pos+index,to:pos+index+query.length});
-        cursor=index+Math.max(1,query.length);
-      }
-    });
-    return matches;
-  };");
+    const escaped=Array.from(findText).map(char=>/[.*+?^$()|[\]\\{}]/.test(char)?"\\"+char:char).join("");
     const matcher=new RegExp(escaped,findCaseSensitive?"g":"giu");
     const matches=[];
     let runText="",runStart=0,runEnd=0;

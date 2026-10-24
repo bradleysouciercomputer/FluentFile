@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import TaskList from "@tiptap/extension-task-list";
+import TaskItem from "@tiptap/extension-task-item";
 import {
   FluentProvider, webLightTheme, webDarkTheme, makeStyles, tokens,
   Button, Input, SearchBox, Checkbox, Text, Title2, Title3, Body1, Caption1,
@@ -25,11 +27,17 @@ const isDocument = file => Boolean(file && file.type === DOC_MIME);
 const escapedHtml = value => String(value || "").replace(/[&<>"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[char]));
 const sanitizeDocHtml = input => {
   const parsed = new DOMParser().parseFromString(String(input || ""), "text/html");
-  parsed.querySelectorAll("script,style,iframe,object,embed,form,svg,math,video,audio,link,meta,base").forEach(node => node.remove());
-  const allowed = new Set(["p","br","strong","b","em","i","u","s","del","ul","ol","li","h1","h2","h3","blockquote","pre","code","hr","a"]);
+  parsed.querySelectorAll("script,style,iframe,object,embed,form,svg,math,video,audio,link,meta,base,textarea,button").forEach(node => node.remove());
+  const allowed = new Set(["p","br","strong","b","em","i","u","s","del","ul","ol","li","h1","h2","h3","blockquote","pre","code","hr","a","div","label","span","input"]);
   Array.from(parsed.body.querySelectorAll("*")).forEach(node => {
     if (!node.isConnected) return;
     const tag = node.tagName.toLowerCase();
+    if (tag === "input") {
+      if (node.getAttribute("type") !== "checkbox" || !node.closest('li[data-type="taskItem"]')) {
+        node.remove();
+        return;
+      }
+    }
     if (!allowed.has(tag)) {
       const parent = node.parentNode;
       if (parent) {
@@ -40,7 +48,14 @@ const sanitizeDocHtml = input => {
     }
     Array.from(node.attributes).forEach(attribute => {
       const name = attribute.name.toLowerCase();
+      const value = attribute.value;
       if (tag === "a" && ["href","target","rel","title"].includes(name)) return;
+      if ((tag === "ul" && name === "data-type" && value === "taskList") ||
+          (tag === "li" && name === "data-type" && value === "taskItem") ||
+          (tag === "li" && name === "data-checked" && ["true","false"].includes(value))) return;
+      if (tag === "input" && name === "type" && value === "checkbox") return;
+      if (tag === "input" && ["checked","disabled"].includes(name)) return;
+      if (tag === "input" && name === "aria-label") return;
       node.removeAttribute(attribute.name);
     });
     if (tag === "a") {
@@ -79,8 +94,9 @@ const htmlToMarkdown = html => {
     if (tag === "br") return "\n";
     if (tag === "hr") return "\n---\n\n";
     if (tag === "li") {
-      const parentTag = node.parentElement?.tagName.toLowerCase();
-      const prefix = parentTag === "ol" ? (Array.from(node.parentElement.children).indexOf(node) + 1) + ". " : "- ";
+      const parent = node.parentElement;
+      const parentTag = parent?.tagName.toLowerCase();
+      const prefix = parent?.getAttribute("data-type") === "taskList" ? (node.getAttribute("data-checked") === "true" ? "[x] " : "[ ] ") : parentTag === "ol" ? (Array.from(parent.children).indexOf(node) + 1) + ". " : "- ";
       return prefix + children.trim() + "\n";
     }
     if (tag === "ul" || tag === "ol") return children + "\n";
@@ -280,6 +296,7 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
   const [lastSaved,setLastSaved]=useState("");
   const [error,setError]=useState("");
   const [findOpen,setFindOpen]=useState(false);
+  const [outlineOpen,setOutlineOpen]=useState(false);
   const [findText,setFindText]=useState("");
   const [replaceText,setReplaceText]=useState("");
   const [findCaseSensitive,setFindCaseSensitive]=useState(false);
@@ -289,7 +306,7 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
   const markDirty=()=>{dirtyRef.current=true;setDirty(true);};
   titleRef.current=title;htmlRef.current=html;
   const editor=useEditor({
-    extensions:[StarterKit.configure({heading:{levels:[1,2,3]}})],
+    extensions:[StarterKit.configure({heading:{levels:[1,2,3]}}),TaskList,TaskItem.configure({nested:true})],
     content:"<p></p>",
     onUpdate:({editor})=>{
       if(!readyRef.current)return;
@@ -373,12 +390,17 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="h"){
         event.preventDefault();setFindOpen(open=>!open);setFindMessage("");
       }
+      if((event.ctrlKey||event.metaKey)&&event.altKey&&event.key.toLowerCase()==="o"){
+        event.preventDefault();setOutlineOpen(open=>!open);
+      }
     };
     window.addEventListener("keydown",handleKey);
     return ()=>window.removeEventListener("keydown",handleKey);
   },[]);
   const run=command=>{if(editor)command(editor.chain().focus()).run();};
   const findMatches=()=>{
+    if(!editor||!findText)return [];
+    const escaped=findText.replace(/[.*+?^$()|[\]\\{}]/g,"\\  const findMatches=()=>{
     const query=findText;
     if(!editor||!query)return [];
     const normalize=value=>findCaseSensitive?value:value.toLocaleLowerCase();
@@ -392,6 +414,29 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
         cursor=index+Math.max(1,query.length);
       }
     });
+    return matches;
+  };");
+    const matcher=new RegExp(escaped,findCaseSensitive?"g":"giu");
+    const matches=[];
+    let runText="",runStart=0,runEnd=0;
+    const flush=()=>{
+      if(!runText)return;
+      matcher.lastIndex=0;
+      let match;
+      while((match=matcher.exec(runText))!==null){
+        matches.push({from:runStart+match.index,to:runStart+match.index+match[0].length});
+        if(!match[0].length)matcher.lastIndex++;
+      }
+      runText="";
+    };
+    editor.state.doc.descendants((node,pos)=>{
+      if(!node.isText||!node.text)return;
+      if(runText&&pos!==runEnd)flush();
+      if(!runText)runStart=pos;
+      runText+=node.text;
+      runEnd=pos+node.nodeSize;
+    });
+    flush();
     return matches;
   };
   const findNext=()=>{
@@ -453,6 +498,18 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
     document.body.appendChild(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
   };
   const copyLink=()=>onCopyLink("doc",record);
+  const insertCurrentStamp=format=>{
+    if(!editor)return;
+    const now=new Date();
+    const value=format==="date"
+      ?new Intl.DateTimeFormat(undefined,{dateStyle:"long"}).format(now)
+      :new Intl.DateTimeFormat(undefined,{hour:"numeric",minute:"2-digit"}).format(now);
+    editor.chain().focus().insertContent(value).run();
+  };
+  const headings=[];
+  if(editor)editor.state.doc.descendants((node,pos)=>{
+    if(node.type.name==="heading")headings.push({pos,level:node.attrs.level,text:node.textContent.trim()||"Untitled heading"});
+  });
   const plainText=editor?.getText("\n")||"";
   const wordCount=(plainText.match(/\S+/g)||[]).length;
   const characterCount=plainText.length;
@@ -484,16 +541,25 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
         <Divider vertical/>
         <Tooltip content="Bulleted list" relationship="label"><Button size="small" appearance={editor?.isActive("bulletList")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleBulletList())}>• List</Button></Tooltip>
         <Tooltip content="Numbered list" relationship="label"><Button size="small" appearance={editor?.isActive("orderedList")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleOrderedList())}>1. List</Button></Tooltip>
+        <Tooltip content="Checklist" relationship="label"><Button size="small" appearance={editor?.isActive("taskList")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleTaskList())}>☑ Tasks</Button></Tooltip>
         <Tooltip content="Block quote" relationship="label"><Button size="small" appearance={editor?.isActive("blockquote")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleBlockquote())}>Quote</Button></Tooltip>
         <Tooltip content="Code block" relationship="label"><Button size="small" appearance={editor?.isActive("codeBlock")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleCodeBlock())}>Code</Button></Tooltip>
         <Divider vertical/>
         <Tooltip content="Insert or edit link" relationship="label"><Button size="small" appearance={editor?.isActive("link")?"primary":"subtle"} onClick={addLink}>Link</Button></Tooltip>
+        <Tooltip content="Insert a divider" relationship="label"><Button size="small" appearance="subtle" onClick={()=>run(chain=>chain.setHorizontalRule())}>Divider</Button></Tooltip>
+        <Menu><MenuTrigger disableButtonEnhancement><Button size="small" appearance="subtle">Insert date/time</Button></MenuTrigger><MenuPopover><MenuList><MenuItem onClick={()=>insertCurrentStamp("date")}>Insert today’s date</MenuItem><MenuItem onClick={()=>insertCurrentStamp("time")}>Insert current time</MenuItem></MenuList></MenuPopover></Menu>
         <Tooltip content="Remove formatting" relationship="label"><Button size="small" appearance="subtle" onClick={()=>run(chain=>chain.unsetAllMarks().clearNodes())}>Clear format</Button></Tooltip>
         <span style={{flex:1}}/>
+        <Button size="small" appearance={outlineOpen?"primary":"subtle"} onClick={()=>setOutlineOpen(open=>!open)}>Outline</Button>
         <Button size="small" appearance={findOpen?"primary":"subtle"} onClick={()=>{setFindOpen(open=>!open);setFindMessage("");}}>Find &amp; replace</Button>
         <Button size="small" appearance="subtle" onClick={()=>run(chain=>chain.undo())} disabled={!editor?.can().undo()}>Undo</Button>
         <Button size="small" appearance="subtle" onClick={()=>run(chain=>chain.redo())} disabled={!editor?.can().redo()}>Redo</Button>
       </div>
+      {outlineOpen&&<div className="ff-doc-outline-panel" style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"10px 22px",backgroundColor:tokens.colorNeutralBackground1,borderBottom:"1px solid "+tokens.colorNeutralStroke2}}>
+        <Caption1>DOCUMENT OUTLINE</Caption1>
+        {headings.length?headings.map((heading,index)=><Button key={heading.pos+"-"+index} size="small" appearance="subtle" style={{marginLeft:(heading.level-1)*8,maxWidth:260}} onClick={()=>editor?.chain().focus().setTextSelection(Math.min(heading.pos+1,editor.state.doc.content.size)).scrollIntoView().run()} title={heading.text}>{heading.text}</Button>):<Caption1>Add H1, H2, or H3 headings to build an outline.</Caption1>}
+        <Button size="small" appearance="subtle" onClick={()=>setOutlineOpen(false)}>Close</Button>
+      </div>}
       {findOpen&&<div className="ff-doc-find-panel" style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"10px 22px",backgroundColor:tokens.colorNeutralBackground1,borderBottom:"1px solid "+tokens.colorNeutralStroke2}}>
         <Input value={findText} onChange={(_,data)=>{setFindText(data.value);setFindMessage("");}} placeholder="Find text" aria-label="Find text" onKeyDown={event=>{if(event.key==="Enter"){event.preventDefault();findNext();}}}/>
         <Input value={replaceText} onChange={(_,data)=>setReplaceText(data.value)} placeholder="Replace with" aria-label="Replacement text" onKeyDown={event=>{if(event.key==="Enter"){event.preventDefault();replaceCurrent();}}}/>

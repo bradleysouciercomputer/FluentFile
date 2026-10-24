@@ -90,16 +90,30 @@ html,body,#root{min-height:100%;margin:0}body{font-family:"Segoe UI",-apple-syst
 }
 
 /* NEW release markers for FluentFile Docs and Canvases */
-.ff-new-service { position:relative!important; }
-.ff-new-service-badge { position:static!important; margin-inline-start:8px!important; transform:none!important; flex-shrink:0; font-size:9px!important; line-height:12px!important; min-width:0!important; padding:0 4px!important; }
+/* Keep release markers visually present without participating in click targeting. */
+.ff-nav-section { width:100%; min-width:0; }
+.ff-nav { width:100%; min-width:0; }
+.ff-nav-button { box-sizing:border-box!important; width:100%!important; max-width:100%!important; min-width:0!important; flex:0 0 38px; overflow:hidden; }
+.ff-new-service { position:relative!important; isolation:isolate; }
+.ff-new-service-badge {
+  display:inline-flex!important; align-items:center; justify-content:center;
+  position:static!important; flex:0 0 auto; pointer-events:none!important; user-select:none;
+  box-sizing:border-box; margin-inline-start:8px; padding:0 4px;
+  border-radius:4px; white-space:nowrap; font-size:9px; line-height:12px; font-weight:600;
+  background:var(--colorPaletteBlueBackground2,#deecf9); color:var(--colorPaletteBlueForeground2,#004578);
+}
 .ff-inline-new-tag { display:inline-flex!important; vertical-align:middle; margin-inline-start:6px!important; flex-shrink:0; font-size:9px!important; line-height:12px!important; min-width:0!important; padding:0 4px!important; }
 .ff-workspace-title-row { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
 .ff-service-title-row { display:flex; align-items:center; gap:8px; min-width:0; }
 .ff-service-title-row > :first-child { min-width:0; }
 @media(max-width:900px) {
-  .ff-new-service-badge { position:absolute!important; top:0!important; right:0!important; margin:0!important; transform:translate(22%,-18%)!important; }
+  .ff-nav-button { flex:0 0 38px; }
+  .ff-new-service-badge { position:absolute!important; top:1px; right:2px; margin:0!important; z-index:1; font-size:7px; line-height:10px; padding:0 2px; }
 }
 @media(max-width:600px) {
-  .ff-new-service-badge { transform:translate(12%,-12%)!important; font-size:8px!important; padding:0 3px!important; }
+  .ff-nav-section { flex:1 1 0; width:auto; min-width:0; overflow:hidden; }
+  .ff-nav { width:100%; min-width:0; }
+  .ff-nav-button { width:38px!important; min-width:38px!important; max-width:38px!important; height:38px!important; flex:0 0 38px!important; }
+  .ff-new-service-badge { right:1px; top:1px; }
   .ff-service-title-row { flex-wrap:wrap; }
 }

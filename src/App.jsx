@@ -888,10 +888,10 @@ const slidesHtmlDocument = (title,model) => {
   const theme=SLIDE_THEMES[model.theme]||SLIDE_THEMES.blue;
   const deckSlides=model.slides||[];
   const slides=deckSlides.map((slide,index)=>
-    '<section class="slide '+(slide.layout==="title"?"title-slide":slide.layout==="quote"?"quote-slide":"content-slide")+'">'+
+    '<section class="slide '+(slide.layout==="title"?"title-slide":slide.layout==="quote"?"quote-slide":slide.layout==="bullets"?"bullet-slide":"content-slide")+'">'+
     '<div class="eyebrow">'+escapedHtml(title)+' · '+(index+1)+' / '+deckSlides.length+'</div>'+
     '<h1>'+escapedHtml(slide.title||"Untitled slide")+'</h1>'+
-    '<div class="slide-body">'+escapedHtml(slide.body||"").replace(/\r?\n/g,"<br>")+'</div>'+
+    (slide.layout==="bullets"?'<ul class="slide-body bullet-list">'+String(slide.body||"").split(/\r?\n/).filter(line=>line.trim()).map(line=>'<li>'+escapedHtml(line)+'</li>').join("")+'</ul>':'<div class="slide-body">'+escapedHtml(slide.body||"").replace(/\r?\n/g,"<br>")+'</div>')+
     '<div class="slide-accent"></div></section>'
   ).join("");
   return '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>'+escapedHtml(title)+'</title><style>'+
@@ -904,6 +904,7 @@ const slidesHtmlDocument = (title,model) => {
     '.title-slide .eyebrow{text-align:center}'+
     '.quote-slide h1{font-size:clamp(26px,4vw,54px);font-weight:650;max-width:22ch}'+
     '.quote-slide .slide-body{font-size:clamp(16px,1.8vw,24px);opacity:.85}'+
+    '.bullet-slide .slide-body{padding-left:1.1em;margin:0;max-width:30em}.bullet-slide .slide-body li{padding:.16em 0}'+
     '.slide-accent{position:absolute;bottom:0;left:0;width:100%;height:12px;background:'+theme.accent+'}'+
     '@media print{@page{size:landscape;margin:.25in}html,body{background:#fff;scroll-snap-type:none}.slide{height:5.625in;min-height:0;width:10in;padding:.45in .7in;background:'+theme.background+'!important;print-color-adjust:exact;-webkit-print-color-adjust:exact;overflow:hidden}.slide-accent{height:8px}}'+
     '</style></head><body>'+slides+'</body></html>';
@@ -920,8 +921,10 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
   const [lastSaved,setLastSaved]=useState("");
   const [error,setError]=useState("");
   const [presenting,setPresenting]=useState(false);
+  const [canUndo,setCanUndo]=useState(false),[canRedo,setCanRedo]=useState(false);
   const recordRef=useRef(null),titleRef=useRef(""),slidesRef=useRef([]),themeRef=useRef("blue"),modelRef=useRef(null);
   const readyRef=useRef(false),dirtyRef=useRef(false),saveQueue=useRef(Promise.resolve()),saveVersion=useRef(0),loadGeneration=useRef(0);
+  const undoStack=useRef([]),redoStack=useRef([]),pendingEdit=useRef(null),importRef=useRef(null);
   const themeValue=SLIDE_THEMES[theme]||SLIDE_THEMES.blue;
   titleRef.current=title;slidesRef.current=slides;themeRef.current=theme;
   modelRef.current={version:1,theme,slides};
@@ -929,6 +932,35 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
   const currentIndex=Math.max(0,slides.findIndex(slide=>slide.id===selectedId));
   const currentSlide=slides[currentIndex]||slides[0]||null;
   const markDirty=()=>{dirtyRef.current=true;setDirty(true);setStatus("Unsaved changes");};
+  const historySnapshot=()=>({title:titleRef.current,theme:themeRef.current,slides:slidesRef.current.map(slide=>({...slide}))});
+  const syncHistory=()=>{setCanUndo(undoStack.current.length>0);setCanRedo(redoStack.current.length>0);};
+  const pushHistory=snapshot=>{undoStack.current=[...undoStack.current,snapshot].slice(-50);redoStack.current=[];syncHistory();};
+  const rememberHistory=()=>{pendingEdit.current=null;pushHistory(historySnapshot());};
+  const beginTextEdit=()=>{pendingEdit.current=historySnapshot();};
+  const finishTextEdit=()=>{
+    if(!pendingEdit.current)return;
+    const before=pendingEdit.current;pendingEdit.current=null;
+    if(JSON.stringify(before)!==JSON.stringify(historySnapshot()))pushHistory(before);
+  };
+  const applyHistory=entry=>{
+    const nextSlides=entry.slides.map(slide=>({...slide}));
+    titleRef.current=entry.title;setTitle(entry.title);
+    themeRef.current=entry.theme;setTheme(entry.theme);
+    slidesRef.current=nextSlides;setSlides(nextSlides);
+    modelRef.current={version:1,theme:entry.theme,slides:nextSlides};
+    setSelectedId(current=>nextSlides.some(slide=>slide.id===current)?current:(nextSlides[0]?.id||""));
+    pendingEdit.current=null;markDirty();
+  };
+  const undo=()=>{
+    if(!undoStack.current.length)return;
+    redoStack.current=[...redoStack.current,historySnapshot()].slice(-50);
+    applyHistory(undoStack.current.pop());syncHistory();
+  };
+  const redo=()=>{
+    if(!redoStack.current.length)return;
+    undoStack.current=[...undoStack.current,historySnapshot()].slice(-50);
+    applyHistory(redoStack.current.pop());syncHistory();
+  };
   const changedSlides=next=>{
     slidesRef.current=next;modelRef.current={version:1,theme:themeRef.current,slides:next};
     setSlides(next);markDirty();
@@ -945,7 +977,7 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
       const fallback=newSlidesModel();
       const nextSlides=Array.isArray(parsed?.slides)&&parsed.slides.length?parsed.slides.filter(slide=>slide&&typeof slide==="object").map(slide=>({
         id:typeof slide.id==="string"&&slide.id?slide.id:uid(),
-        layout:["title","content","quote"].includes(slide.layout)?slide.layout:"content",
+        layout:["title","content","quote","bullets"].includes(slide.layout)?slide.layout:"content",
         title:String(slide.title||""),
         body:String(slide.body||""),
         notes:String(slide.notes||"")
@@ -955,6 +987,7 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
       slidesRef.current=nextSlides;setSlides(nextSlides);themeRef.current=nextTheme;setTheme(nextTheme);
       setSelectedId(nextSlides[0]?.id||"");
       modelRef.current={version:1,theme:nextTheme,slides:nextSlides};
+      undoStack.current=[];redoStack.current=[];pendingEdit.current=null;syncHistory();
       dirtyRef.current=false;setDirty(false);readyRef.current=true;setReady(true);
       setLastSaved(found.modifiedAt?new Date(found.modifiedAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"");
       setStatus("Saved on this device");
@@ -999,31 +1032,38 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
   },[]);
   useEffect(()=>{
     const onKey=event=>{
+      const target=event.target;
+      const editingText=target instanceof HTMLElement&&(target.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="s"){event.preventDefault();persist(titleRef.current,currentModel());return;}
+      if(!editingText&&(event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="z"){event.preventDefault();event.shiftKey?redo():undo();return;}
+      if(!editingText&&(event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="y"){event.preventDefault();redo();return;}
       if(!presenting)return;
       if(event.key==="Escape"){event.preventDefault();setPresenting(false);return;}
       if(event.key==="ArrowRight"||event.key==="PageDown"){event.preventDefault();setSelectedId(slidesRef.current[Math.min(slidesRef.current.length-1,currentIndex+1)]?.id||selectedId);}
       if(event.key==="ArrowLeft"||event.key==="PageUp"){event.preventDefault();setSelectedId(slidesRef.current[Math.max(0,currentIndex-1)]?.id||selectedId);}
     };
     window.addEventListener("keydown",onKey);return ()=>window.removeEventListener("keydown",onKey);
-  },[presenting,currentIndex,selectedId]);
+  },[presenting,currentIndex,selectedId,undo,redo]);
   const updateCurrent=patch=>{
     if(!currentSlide)return;
     changedSlides(slidesRef.current.map(slide=>slide.id===currentSlide.id?{...slide,...patch}:slide));
   };
   const addSlide=(layout="content")=>{
-    const next={id:uid(),layout,title:layout==="title"?"Presentation title":layout==="quote"?"A thought worth sharing":"New slide",body:layout==="title"?"Add a short subtitle here.":layout==="quote"?"Add a supporting thought or attribution.":"Add your key points here.\nUse a new line for each point.",notes:""};
+    rememberHistory();
+    const next={id:uid(),layout,title:layout==="title"?"Presentation title":layout==="quote"?"A thought worth sharing":layout==="bullets"?"Agenda":"New slide",body:layout==="title"?"Add a short subtitle here.":layout==="quote"?"Add a supporting thought or attribution.":layout==="bullets"?"First topic\nSecond topic\nThird topic":"Add your key points here.\nUse a new line for each point.",notes:""};
     const nextSlides=[...slidesRef.current.slice(0,currentIndex+1),next,...slidesRef.current.slice(currentIndex+1)];
     changedSlides(nextSlides);setSelectedId(next.id);
   };
   const duplicateSlide=()=>{
     if(!currentSlide)return;
+    rememberHistory();
     const copy={...currentSlide,id:uid(),title:(currentSlide.title||"Untitled slide")+" (copy)"};
     const next=[...slidesRef.current.slice(0,currentIndex+1),copy,...slidesRef.current.slice(currentIndex+1)];
     changedSlides(next);setSelectedId(copy.id);
   };
   const moveSlide=direction=>{
     const target=currentIndex+direction;if(target<0||target>=slidesRef.current.length)return;
+    rememberHistory();
     const next=slidesRef.current.slice(),[item]=next.splice(currentIndex,1);next.splice(target,0,item);
     changedSlides(next);setSelectedId(item.id);
   };
@@ -1031,16 +1071,19 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
     if(!currentSlide)return;
     if(slidesRef.current.length===1){
       if(!window.confirm("Clear this slide's content?"))return;
+      rememberHistory();
       const reset={...currentSlide,layout:"content",title:"",body:"",notes:""};
       changedSlides([reset]);return;
     }
-    if(!window.confirm("Delete this slide? This cannot be undone."))return;
+    if(!window.confirm("Delete this slide? You can use Undo to restore it."))return;
+    rememberHistory();
     const next=slidesRef.current.filter(slide=>slide.id!==currentSlide.id);
     const nextIndex=Math.min(currentIndex,next.length-1);
     changedSlides(next);setSelectedId(next[nextIndex].id);
   };
   const changeTheme=value=>{
-    if(!SLIDE_THEMES[value])return;
+    if(!SLIDE_THEMES[value]||value===themeRef.current)return;
+    rememberHistory();
     themeRef.current=value;setTheme(value);modelRef.current={version:1,theme:value,slides:slidesRef.current};markDirty();
   };
   const exportAs=format=>{
@@ -1051,16 +1094,37 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
     anchor.href=url;anchor.download=safe.replace(/[\\/:*?"<>|]/g,"_")+(format==="html"?".html":".slides.json");
     document.body.appendChild(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
   };
+  const importJSON=async event=>{
+    const input=event.currentTarget,file=input.files?.[0];input.value="";if(!file)return;
+    try{
+      const parsed=JSON.parse(await file.text());
+      if(!Array.isArray(parsed?.slides)||!parsed.slides.length)throw new Error("This file does not contain a valid FluentFile Slides deck.");
+      if(parsed.slides.length>300)throw new Error("This deck contains more than 300 slides. Split it into smaller presentations and try again.");
+      const seen=new Set();
+      const nextSlides=parsed.slides.filter(slide=>slide&&typeof slide==="object").map(slide=>{
+        let id=typeof slide.id==="string"&&slide.id?slide.id:uid();if(seen.has(id))id=uid();seen.add(id);
+        return {id,layout:["title","content","quote","bullets"].includes(slide.layout)?slide.layout:"content",title:String(slide.title??""),body:String(slide.body??""),notes:String(slide.notes??"")};
+      });
+      if(!nextSlides.length)throw new Error("No usable slides were found in that file.");
+      if(!window.confirm("Import "+nextSlides.length+" slide(s) and replace the current deck? You can use Undo to restore the current slides."))return;
+      rememberHistory();
+      const nextTheme=SLIDE_THEMES[parsed.theme]?parsed.theme:"blue";
+      themeRef.current=nextTheme;setTheme(nextTheme);slidesRef.current=nextSlides;setSlides(nextSlides);
+      modelRef.current={version:1,theme:nextTheme,slides:nextSlides};setSelectedId(nextSlides[0].id);
+      setError("");markDirty();
+    }catch(e){setError(e.message||"Could not import this Slides JSON file.");setStatus("Import failed");}
+  };
   const back=async()=>{
     const saved=await persist(titleRef.current,currentModel());
     if(saved)onBack(recordRef.current?.folderId||null);
   };
   return <FluentProvider theme={dark?webDarkTheme:webLightTheme}>
     <div className="ff-slides-app">
+      <input ref={importRef} type="file" accept=".json,application/json" style={{display:"none"}} onChange={importJSON}/>
       <header className="ff-slides-header">
         <Button appearance="subtle" onClick={back} icon={<FolderOpen24Regular/>}>Back to files</Button>
         <div className="ff-slides-heading">
-          <div className="ff-service-title-row"><Input className="ff-slides-deck-title" size="large" value={title} onChange={(_,data)=>{titleRef.current=data.value;setTitle(data.value);markDirty();}} placeholder="Untitled presentation" aria-label="Presentation title"/><span className="ff-inline-new-tag">NEW</span></div>
+          <div className="ff-service-title-row"><Input className="ff-slides-deck-title" size="large" value={title} onFocus={beginTextEdit} onBlur={finishTextEdit} onChange={(_,data)=>{titleRef.current=data.value;setTitle(data.value);markDirty();}} placeholder="Untitled presentation" aria-label="Presentation title"/><span className="ff-inline-new-tag">NEW</span></div>
           <Text size={100} className="ff-slides-status">{status}{lastSaved&&status==="Saved on this device"?" · "+lastSaved:""}</Text>
         </div>
         <div className="ff-slides-header-actions">
@@ -1068,15 +1132,18 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
           <Menu><MenuTrigger disableButtonEnhancement><Button appearance="secondary" icon={<ArrowDownload24Regular/>}>Export</Button></MenuTrigger><MenuPopover><MenuList>
             <MenuItem onClick={()=>exportAs("html")}>Download HTML presentation</MenuItem>
             <MenuItem onClick={()=>exportAs("json")}>Download editable Slides JSON</MenuItem>
+            <MenuItem onClick={()=>importRef.current?.click()}>Import Slides JSON (replace current deck)</MenuItem>
             <MenuItem onClick={()=>window.print()}>Print current slide</MenuItem>
           </MenuList></MenuPopover></Menu>
+          <Button appearance="secondary" disabled={!canUndo} onClick={undo}>Undo</Button>
+          <Button appearance="secondary" disabled={!canRedo} onClick={redo}>Redo</Button>
           <Button appearance="primary" disabled={!ready||!dirty} onClick={()=>persist(titleRef.current,currentModel())}>Save now</Button>
         </div>
       </header>
       <div className="ff-slides-toolbar" role="toolbar" aria-label="Slides tools">
         <Button appearance="primary" onClick={()=>addSlide("content")}>+ Add slide</Button>
         <Menu><MenuTrigger disableButtonEnhancement><Button appearance="secondary">Add layout</Button></MenuTrigger><MenuPopover><MenuList>
-          <MenuItem onClick={()=>addSlide("title")}>Title slide</MenuItem><MenuItem onClick={()=>addSlide("content")}>Content slide</MenuItem><MenuItem onClick={()=>addSlide("quote")}>Quote slide</MenuItem>
+          <MenuItem onClick={()=>addSlide("title")}>Title slide</MenuItem><MenuItem onClick={()=>addSlide("content")}>Content slide</MenuItem><MenuItem onClick={()=>addSlide("quote")}>Quote slide</MenuItem><MenuItem onClick={()=>addSlide("bullets")}>Bullets / agenda</MenuItem>
         </MenuList></MenuPopover></Menu>
         <Button appearance="secondary" onClick={duplicateSlide} disabled={!currentSlide}>Duplicate</Button>
         <Button appearance="subtle" onClick={()=>moveSlide(-1)} disabled={!currentSlide||currentIndex<=0}>Move up</Button>
@@ -1103,14 +1170,14 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
             <div className="ff-slides-stage-wrap">
               <div className={"ff-slide-stage layout-"+currentSlide.layout} style={{"--slide-bg":themeValue.background,"--slide-surface":themeValue.surface,"--slide-text":themeValue.text,"--slide-accent":themeValue.accent}}>
                 <div className="ff-slide-stage-eyebrow">{(title||"Untitled presentation").trim()||"Untitled presentation"} <span>· {currentIndex+1} / {slides.length}</span></div>
-                <Input className="ff-slide-stage-title" value={currentSlide.title} onChange={(_,data)=>updateCurrent({title:data.value})} placeholder="Slide title" aria-label="Slide title"/>
-                <Textarea className="ff-slide-stage-body" value={currentSlide.body} onChange={(_,data)=>updateCurrent({body:data.value})} placeholder="Add slide content. Use a new line for each point." resize="vertical" aria-label="Slide content"/>
+                <Input className="ff-slide-stage-title" value={currentSlide.title} onFocus={beginTextEdit} onBlur={finishTextEdit} onChange={(_,data)=>updateCurrent({title:data.value})} placeholder="Slide title" aria-label="Slide title"/>
+                <Textarea className="ff-slide-stage-body" value={currentSlide.body} onFocus={beginTextEdit} onBlur={finishTextEdit} onChange={(_,data)=>updateCurrent({body:data.value})} placeholder="Add slide content. Use a new line for each point." resize="vertical" aria-label="Slide content"/>
                 <div className="ff-slide-stage-accent"/>
               </div>
             </div>
             <div className="ff-slides-notes">
               <label htmlFor="ff-slide-speaker-notes">Speaker notes</label>
-              <Textarea id="ff-slide-speaker-notes" value={currentSlide.notes||""} onChange={(_,data)=>updateCurrent({notes:data.value})} placeholder="Notes for the presenter (not shown on the slide)" resize="vertical" aria-label="Speaker notes"/>
+              <Textarea id="ff-slide-speaker-notes" value={currentSlide.notes||""} onFocus={beginTextEdit} onBlur={finishTextEdit} onChange={(_,data)=>updateCurrent({notes:data.value})} placeholder="Notes for the presenter (not shown on the slide)" resize="vertical" aria-label="Speaker notes"/>
             </div>
           </>}
           <footer className="ff-slides-footer"><AppsList24Regular/><Caption1>FluentFile Slides · Saved locally in this browser</Caption1><span className="ff-slides-toolbar-spacer"/><Caption1>Ctrl/⌘+S saves · Use Present to navigate with arrow keys</Caption1></footer>
@@ -1121,7 +1188,7 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
         <main className={"ff-slide-present-stage layout-"+currentSlide.layout} style={{"--slide-bg":themeValue.background,"--slide-surface":themeValue.surface,"--slide-text":themeValue.text,"--slide-accent":themeValue.accent}}>
           <div className="ff-slide-stage-eyebrow">{title||"Untitled presentation"} <span>· {currentIndex+1} / {slides.length}</span></div>
           <h1>{currentSlide.title||"Untitled slide"}</h1>
-          <div className="ff-slide-present-body">{currentSlide.body}</div><div className="ff-slide-stage-accent"/>
+          {currentSlide.layout==="bullets"?<ul className="ff-slide-present-bullets">{(currentSlide.body||"").split(/\r?\n/).filter(line=>line.trim()).map((line,index)=><li key={index}>{line}</li>)}</ul>:<div className="ff-slide-present-body">{currentSlide.body}</div>}<div className="ff-slide-stage-accent"/>
         </main>
         <footer><Button appearance="secondary" disabled={currentIndex<=0} onClick={()=>setSelectedId(slides[currentIndex-1].id)}>Previous</Button><Text>{currentIndex+1} of {slides.length}</Text><Button appearance="primary" disabled={currentIndex>=slides.length-1} onClick={()=>setSelectedId(slides[currentIndex+1].id)}>Next</Button></footer>
       </div>}

@@ -1038,7 +1038,7 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
       if(!editingText&&(event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="z"){event.preventDefault();event.shiftKey?redo():undo();return;}
       if(!editingText&&(event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="y"){event.preventDefault();redo();return;}
       if(!presenting)return;
-      if(event.key==="Escape"){event.preventDefault();setPresenting(false);return;}
+      if(event.key==="Escape"){event.preventDefault();stopPresentation();return;}
       if(event.key==="ArrowRight"||event.key==="PageDown"){event.preventDefault();setSelectedId(slidesRef.current[Math.min(slidesRef.current.length-1,currentIndex+1)]?.id||selectedId);}
       if(event.key==="ArrowLeft"||event.key==="PageUp"){event.preventDefault();setSelectedId(slidesRef.current[Math.max(0,currentIndex-1)]?.id||selectedId);}
     };
@@ -1094,6 +1094,19 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
     anchor.href=url;anchor.download=safe.replace(/[\\/:*?"<>|]/g,"_")+(format==="html"?".html":".slides.json");
     document.body.appendChild(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
   };
+  const startPresentation=async()=>{
+    setPresenting(true);
+    try{if(document.fullscreenEnabled&&document.documentElement.requestFullscreen&&!document.fullscreenElement)await document.documentElement.requestFullscreen();}catch{}
+  };
+  const stopPresentation=()=>{
+    setPresenting(false);
+    if(document.fullscreenElement&&document.exitFullscreen)document.exitFullscreen().catch(()=>{});
+  };
+  useEffect(()=>{
+    const onFullscreenChange=()=>{if(!document.fullscreenElement)setPresenting(false);};
+    document.addEventListener("fullscreenchange",onFullscreenChange);
+    return ()=>document.removeEventListener("fullscreenchange",onFullscreenChange);
+  },[]);
   const importJSON=async event=>{
     const input=event.currentTarget,file=input.files?.[0];input.value="";if(!file)return;
     try{
@@ -1155,7 +1168,7 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
             {Object.entries(SLIDE_THEMES).map(([key,value])=><option key={key} value={key}>{value.name}</option>)}
           </select>
         </label>
-        <Button appearance="primary" onClick={()=>setPresenting(true)} disabled={!ready||!slides.length}>Present</Button>
+        <Button appearance="primary" onClick={startPresentation} disabled={!ready||!slides.length}>Present</Button>
       </div>
       <div className="ff-slides-workspace">
         <aside className="ff-slides-rail" aria-label="Slide list">
@@ -1171,7 +1184,7 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
               <div className={"ff-slide-stage layout-"+currentSlide.layout} style={{"--slide-bg":themeValue.background,"--slide-surface":themeValue.surface,"--slide-text":themeValue.text,"--slide-accent":themeValue.accent}}>
                 <div className="ff-slide-stage-eyebrow">{(title||"Untitled presentation").trim()||"Untitled presentation"} <span>· {currentIndex+1} / {slides.length}</span></div>
                 <Input className="ff-slide-stage-title" value={currentSlide.title} onFocus={beginTextEdit} onBlur={finishTextEdit} onChange={(_,data)=>updateCurrent({title:data.value})} placeholder="Slide title" aria-label="Slide title"/>
-                <Textarea className="ff-slide-stage-body" value={currentSlide.body} onFocus={beginTextEdit} onBlur={finishTextEdit} onChange={(_,data)=>updateCurrent({body:data.value})} placeholder="Add slide content. Use a new line for each point." resize="vertical" aria-label="Slide content"/>
+                <Textarea className="ff-slide-stage-body" value={currentSlide.body} onFocus={beginTextEdit} onBlur={finishTextEdit} onChange={(_,data)=>updateCurrent({body:data.value})} placeholder={currentSlide.layout==="bullets"?"Add one bullet per line.":"Add slide content. Use a new line for each point."} resize="vertical" aria-label="Slide content"/>
                 <div className="ff-slide-stage-accent"/>
               </div>
             </div>
@@ -1184,7 +1197,7 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
         </main>
       </div>
       {presenting&&currentSlide&&<div className="ff-slides-present-overlay" role="dialog" aria-modal="true" aria-label="Presentation mode">
-        <header><div><strong>{title||"Untitled presentation"}</strong><span> · {currentIndex+1} / {slides.length}</span></div><Button appearance="secondary" onClick={()=>setPresenting(false)}>Exit presentation</Button></header>
+        <header><div><strong>{title||"Untitled presentation"}</strong><span> · {currentIndex+1} / {slides.length}</span></div><Button appearance="secondary" onClick={stopPresentation}>Exit presentation</Button></header>
         <main className={"ff-slide-present-stage layout-"+currentSlide.layout} style={{"--slide-bg":themeValue.background,"--slide-surface":themeValue.surface,"--slide-text":themeValue.text,"--slide-accent":themeValue.accent}}>
           <div className="ff-slide-stage-eyebrow">{title||"Untitled presentation"} <span>· {currentIndex+1} / {slides.length}</span></div>
           <h1>{currentSlide.title||"Untitled slide"}</h1>

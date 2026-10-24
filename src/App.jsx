@@ -508,7 +508,7 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
       <header className={s.header+" ff-doc-header"}>
         <Button appearance="subtle" onClick={async()=>{if(record){const saved=await persist(titleRef.current,htmlRef.current);if(saved)onBack(record.folderId);}else onBack(null);}} icon={<FolderOpen24Regular/>}>Back to files</Button>
         <div style={{minWidth:0,display:"grid",gap:2}}>
-          <Input className={s.titleInput+" ff-doc-title-input"} size="large" value={title} onChange={(_,data)=>{setTitle(data.value);markDirty();}} placeholder="Untitled document" aria-label="Document title"/>
+          <div className="ff-canvas-title-row"><Input className={s.titleInput+" ff-doc-title-input"} size="large" value={title} onChange={(_,data)=>{setTitle(data.value);markDirty();}} placeholder="Untitled document" aria-label="Document title"/><Badge size="small" color="informative">NEW</Badge></div>
           <Text size={100} className={s.status}>{status}{lastSaved&&status==="Saved on this device"?" · "+lastSaved:""}</Text>
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -742,7 +742,10 @@ function FluentCanvasEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
   },[]);
   useEffect(()=>{
     const onKey=event=>{
-      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="s"){event.preventDefault();persist(titleRef.current,currentModel());}
+      const target=event.target;
+      const editingText=target instanceof HTMLElement&&(target.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="s"){event.preventDefault();persist(titleRef.current,currentModel());return;}
+      if(editingText)return;
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="z"&&!event.shiftKey){event.preventDefault();undo();}
       if((event.ctrlKey||event.metaKey)&&(event.key.toLowerCase()==="y"||(event.shiftKey&&event.key.toLowerCase()==="z"))){event.preventDefault();redo();}
     };
@@ -834,7 +837,7 @@ function FluentCanvasEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
       <header className={s.header+" ff-canvas-header"}>
         <Button appearance="subtle" icon={<FolderOpen24Regular/>} onClick={saveAndBack}>Back to files</Button>
         <div style={{minWidth:0,display:"grid",gap:2}}>
-          <Input className={s.titleInput+" ff-canvas-title"} size="large" value={title} onChange={(_,data)=>{titleRef.current=data.value;setTitle(data.value);markDirty();}} placeholder="Untitled canvas" aria-label="Canvas title"/>
+          <div className="ff-canvas-title-row"><Input className={s.titleInput+" ff-canvas-title"} size="large" value={title} onChange={(_,data)=>{titleRef.current=data.value;setTitle(data.value);markDirty();}} placeholder="Untitled canvas" aria-label="Canvas title"/><Badge size="small" color="informative">NEW</Badge></div>
           <Text size={100} className={s.status}>{status}{lastSaved&&status==="Saved on this device"?" · "+lastSaved:""}</Text>
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -948,7 +951,7 @@ function App() {
         setView("files");setFolderId(folder.id);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");return;
       }
       const next=["files","recent","favorites","trash","docs","canvases"].includes(parts[0])?parts[0]:"files";
-      setView(next);setDocumentId(null);setCanvasId(null);setFolderId(null);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");
+      setView(next);setFileFilter("all");setDocumentId(null);setCanvasId(null);setFolderId(null);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");
     } catch(error) { setStorageError(error.message||"Could not open this link."); }
   };
   const setRoute = path => {

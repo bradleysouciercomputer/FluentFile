@@ -508,7 +508,7 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
       <header className={s.header+" ff-doc-header"}>
         <Button appearance="subtle" onClick={async()=>{if(record){const saved=await persist(titleRef.current,htmlRef.current);if(saved)onBack(record.folderId);}else onBack(null);}} icon={<FolderOpen24Regular/>}>Back to files</Button>
         <div style={{minWidth:0,display:"grid",gap:2}}>
-          <div className="ff-canvas-title-row"><Input className={s.titleInput+" ff-doc-title-input"} size="large" value={title} onChange={(_,data)=>{setTitle(data.value);markDirty();}} placeholder="Untitled document" aria-label="Document title"/><Badge size="small" color="informative">NEW</Badge></div>
+          <div className="ff-service-title-row"><Input className={s.titleInput+" ff-doc-title-input"} size="large" value={title} onChange={(_,data)=>{setTitle(data.value);markDirty();}} placeholder="Untitled document" aria-label="Document title"/><Badge size="small" color="informative">NEW</Badge></div>
           <Text size={100} className={s.status}>{status}{lastSaved&&status==="Saved on this device"?" · "+lastSaved:""}</Text>
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -837,7 +837,7 @@ function FluentCanvasEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
       <header className={s.header+" ff-canvas-header"}>
         <Button appearance="subtle" icon={<FolderOpen24Regular/>} onClick={saveAndBack}>Back to files</Button>
         <div style={{minWidth:0,display:"grid",gap:2}}>
-          <div className="ff-canvas-title-row"><Input className={s.titleInput+" ff-canvas-title"} size="large" value={title} onChange={(_,data)=>{titleRef.current=data.value;setTitle(data.value);markDirty();}} placeholder="Untitled canvas" aria-label="Canvas title"/><Badge size="small" color="informative">NEW</Badge></div>
+          <div className="ff-service-title-row"><Input className={s.titleInput+" ff-canvas-title"} size="large" value={title} onChange={(_,data)=>{titleRef.current=data.value;setTitle(data.value);markDirty();}} placeholder="Untitled canvas" aria-label="Canvas title"/><Badge size="small" color="informative">NEW</Badge></div>
           <Text size={100} className={s.status}>{status}{lastSaved&&status==="Saved on this device"?" · "+lastSaved:""}</Text>
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
@@ -1263,8 +1263,8 @@ function App() {
           <div className={s.pageHead}>
             <div className={s.titleBlock}><Caption1>WORKSPACE / {view==="files"?"MY FILES":view.toUpperCase()}</Caption1><div className="ff-workspace-title-row"><Title2>{title}</Title2>{(view==="docs"||view==="canvases")&&<Badge size="small" color="informative">NEW</Badge>}</div><Body1>{subtitle}</Body1></div>
             {(view==="files"||view==="docs"||view==="canvases")&&<div className={s.actions}>
-              {(view==="files"||view==="docs")&&<Button appearance="secondary" icon={<Document24Regular/>} onClick={createDocument}>New document</Button>}
-              {(view==="files"||view==="canvases")&&<Button appearance="secondary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>New canvas</Button>}
+              {(view==="files"||view==="docs")&&<Button appearance="secondary" icon={<Document24Regular/>} onClick={createDocument}>New document <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button>}
+              {(view==="files"||view==="canvases")&&<Button appearance="secondary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>New canvas <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button>}
               {view==="files"&&<><Button appearance="secondary" icon={<FolderAdd24Regular/>} onClick={()=>openEditor("new-folder")}>New folder</Button><Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>inputRef.current?.click()}>Upload files</Button><input ref={inputRef} type="file" multiple hidden onChange={e=>{addFiles(e.target.files);e.target.value="";}}/></>}
             </div>}
           </div>
@@ -1273,7 +1273,7 @@ function App() {
           </div>}
           {view==="files"&&<div className={s.breadcrumbs}><Button size="small" appearance="subtle" onClick={()=>{setQuery("");setRoute("files");}}>My files</Button>{folderPath.map(f=><React.Fragment key={f.id}><ChevronRight12Regular/><Button size="small" appearance="subtle" onClick={()=>{setQuery("");setRoute("folder/"+encodeURIComponent(f.id));}}>{f.name}</Button></React.Fragment>)}</div>}
           <div className={s.contentBar}><Text size={200}>{shownFolders.length} folder{shownFolders.length===1?"":"s"} · {shownFiles.length} file{shownFiles.length===1?"":"s"}</Text><div className={s.controls}>
-            <Dropdown size="small" value={fileFilter==="all"?"All types":fileFilter==="image"?"Images":fileFilter==="documents"?"Documents":fileFilter==="video"?"Videos":fileFilter==="audio"?"Audio":"Other files"} selectedOptions={[fileFilter]} onOptionSelect={(_,data)=>{setSelectedIds([]);setFileFilter(data.optionValue||"all");}} aria-label="Filter by file type"><Option value="all">All types</Option><Option value="image">Images</Option><Option value="documents">Documents</Option><Option value="video">Videos</Option><Option value="audio">Audio</Option><Option value="other">Other files</Option></Dropdown>
+{view!=="docs"&&view!=="canvases"&&<Dropdown size="small" value={fileFilter==="all"?"All types":fileFilter==="image"?"Images":fileFilter==="documents"?"Documents":fileFilter==="video"?"Videos":fileFilter==="audio"?"Audio":"Other files"} selectedOptions={[fileFilter]} onOptionSelect={(_,data)=>{setSelectedIds([]);setFileFilter(data.optionValue||"all");}} aria-label="Filter by file type"><Option value="all">All types</Option><Option value="image">Images</Option><Option value="documents">Documents</Option><Option value="video">Videos</Option><Option value="audio">Audio</Option><Option value="other">Other files</Option></Dropdown>}
             <Dropdown size="small" value={sortBy==="modified"?"Last modified":sortBy==="name"?"Name":"Size"} selectedOptions={[sortBy]} onOptionSelect={(_,data)=>setSortBy(data.optionValue||"modified")} aria-label="Sort files"><Option value="modified">Last modified</Option><Option value="name">Name</Option><Option value="size">Size</Option></Dropdown>
             <Toolbar aria-label="Display options"><ToolbarButton title="Grid view" aria-label="Grid view" icon={<Grid24Regular/>} appearance={layout==="grid"?"primary":"subtle"} onClick={()=>setLayout("grid")}/><ToolbarButton title="List view" aria-label="List view" icon={<AppsList24Regular/>} appearance={layout==="list"?"primary":"subtle"} onClick={()=>setLayout("list")}/></Toolbar>
           </div></div>
@@ -1303,9 +1303,9 @@ function App() {
             {!shownFolders.length&&!shownFiles.length&&<div className={s.empty}><div className={s.emptyMark}>{view==="trash"?<Delete24Regular fontSize={30}/>:view==="favorites"?<Star24Regular fontSize={30}/>:view==="canvases"?<PaintBrush24Regular fontSize={30}/>:<FolderOpen24Regular fontSize={30}/>}</div>
               <Title3>{query?"No matches found":view==="trash"?"Recycle bin is empty":view==="favorites"?"No favorites yet":view==="recent"?"No recent files":view==="docs"?"No documents yet":view==="canvases"?"No canvases yet":"Start with your first file"}</Title3>
               <Body1>{query?"Try another search or clear the search box.":view==="trash"?"Deleted files appear here so you can restore them.":view==="favorites"?"Use the star action on a file to keep it here.":view==="recent"?"Recently changed files will appear here.":view==="docs"?"Create your first document in FluentFile Docs.":view==="canvases"?"Create a blank canvas and start drawing, sketching, or planning.":"Upload files from your device or create a folder to stay organized."}</Body1>
-              {view==="docs"&&!query&&<Button appearance="primary" icon={<Document24Regular/>} onClick={createDocument}>Create document</Button>}
-              {view==="canvases"&&!query&&<Button appearance="primary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>Create canvas</Button>}
-              {view==="files"&&!query&&<div className={s.actions}><Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>inputRef.current?.click()}>Upload files</Button><Button appearance="secondary" icon={<FolderAdd24Regular/>} onClick={()=>openEditor("new-folder")}>Create folder</Button><Button appearance="secondary" icon={<Document24Regular/>} onClick={createDocument}>Create document</Button><Button appearance="secondary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>Create canvas</Button></div>}
+              {view==="docs"&&!query&&<Button appearance="primary" icon={<Document24Regular/>} onClick={createDocument}>Create document <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button>}
+              {view==="canvases"&&!query&&<Button appearance="primary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>Create canvas <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button>}
+              {view==="files"&&!query&&<div className={s.actions}><Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>inputRef.current?.click()}>Upload files</Button><Button appearance="secondary" icon={<FolderAdd24Regular/>} onClick={()=>openEditor("new-folder")}>Create folder</Button><Button appearance="secondary" icon={<Document24Regular/>} onClick={createDocument}>Create document <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button><Button appearance="secondary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>Create canvas <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button></div>}
               {query&&<Button appearance="secondary" onClick={()=>setQuery("")}>Clear search</Button>}
             </div>}
           </>}

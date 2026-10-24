@@ -23,7 +23,73 @@ const DB = "fluentfile-browser-store";
 const DOC_MIME = "application/vnd.fluentfile.document+html";
 const isDocument = file => Boolean(file && file.type === DOC_MIME);
 const escapedHtml = value => String(value || "").replace(/[&<>"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[char]));
-const fullDocumentHtml = (title, body) => "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>"+escapedHtml(title)+"</title><style>body{font:16px/1.65 Segoe UI,Arial,sans-serif;max-width:800px;margin:48px auto;padding:0 24px;color:#222}h1,h2,h3{line-height:1.25}img{max-width:100%}pre{white-space:pre-wrap}</style></head><body>"+body+"</body></html>";
+const sanitizeDocHtml = input => {
+  const parsed = new DOMParser().parseFromString(String(input || ""), "text/html");
+  parsed.querySelectorAll("script,style,iframe,object,embed,form,svg,math,video,audio,link,meta,base").forEach(node => node.remove());
+  const allowed = new Set(["p","br","strong","b","em","i","u","s","del","ul","ol","li","h1","h2","h3","blockquote","pre","code","hr","a"]);
+  Array.from(parsed.body.querySelectorAll("*")).forEach(node => {
+    if (!node.isConnected) return;
+    const tag = node.tagName.toLowerCase();
+    if (!allowed.has(tag)) {
+      const parent = node.parentNode;
+      if (parent) {
+        while (node.firstChild) parent.insertBefore(node.firstChild, node);
+        parent.removeChild(node);
+      }
+      return;
+    }
+    Array.from(node.attributes).forEach(attribute => {
+      const name = attribute.name.toLowerCase();
+      if (tag === "a" && ["href","target","rel","title"].includes(name)) return;
+      node.removeAttribute(attribute.name);
+    });
+    if (tag === "a") {
+      const href = node.getAttribute("href");
+      if (href) {
+        try {
+          const parsedUrl = new URL(href, window.location.href);
+          if (!["http:","https:","mailto:","tel:"].includes(parsedUrl.protocol)) node.removeAttribute("href");
+        } catch {
+          node.removeAttribute("href");
+        }
+      }
+      if (node.getAttribute("target") === "_blank") node.setAttribute("rel", "noopener noreferrer");
+    }
+  });
+  return parsed.body.innerHTML.trim() || "<p></p>";
+};
+const htmlToMarkdown = html => {
+  const body = new DOMParser().parseFromString(sanitizeDocHtml(html), "text/html").body;
+  const fence = String.fromCharCode(96).repeat(3);
+  const render = (node, inPre = false) => {
+    if (node.nodeType === 3) return inPre ? node.nodeValue : node.nodeValue.replace(/\s+/g, " ");
+    if (node.nodeType !== 1) return "";
+    const tag = node.tagName.toLowerCase();
+    if (tag === "pre") return fence + "\n" + node.textContent.replace(/\n?$/, "\n") + fence + "\n\n";
+    if (tag === "code") return node.parentElement?.tagName.toLowerCase() === "pre" ? node.textContent : String.fromCharCode(96) + node.textContent + String.fromCharCode(96);
+    const children = Array.from(node.childNodes).map(child => render(child, inPre || tag === "pre")).join("");
+    if (tag === "h1") return "# " + children.trim() + "\n\n";
+    if (tag === "h2") return "## " + children.trim() + "\n\n";
+    if (tag === "h3") return "### " + children.trim() + "\n\n";
+    if (tag === "p") return children.trim() ? children.trim() + "\n\n" : "\n";
+    if (tag === "strong" || tag === "b") return "**" + children + "**";
+    if (tag === "em" || tag === "i") return "*" + children + "*";
+    if (tag === "s" || tag === "del") return "~~" + children + "~~";
+    if (tag === "a") return node.getAttribute("href") ? "[" + children + "](" + node.getAttribute("href").replace(/\)/g, "%29") + ")" : children;
+    if (tag === "br") return "\n";
+    if (tag === "hr") return "\n---\n\n";
+    if (tag === "li") {
+      const parentTag = node.parentElement?.tagName.toLowerCase();
+      const prefix = parentTag === "ol" ? (Array.from(node.parentElement.children).indexOf(node) + 1) + ". " : "- ";
+      return prefix + children.trim() + "\n";
+    }
+    if (tag === "ul" || tag === "ol") return children + "\n";
+    if (tag === "blockquote") return children.trim().split("\n").map(line => line ? "> " + line : ">").join("\n") + "\n\n";
+    return children;
+  };
+  return render(body).replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim() + "\n";
+};
+const fullDocumentHtml = (title, body) => "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>"+escapedHtml(title)+"</title><style>body{font:16px/1.65 Segoe UI,Arial,sans-serif;max-width:800px;margin:48px auto;padding:0 24px;color:#222}h1,h2,h3{line-height:1.25}img{max-width:100%}pre{white-space:pre-wrap}</style></head><body>"+sanitizeDocHtml(body)+"</body></html>";
 function openDB() {
   return new Promise((resolve, reject) => {
     if (!("indexedDB" in window)) return reject(new Error("IndexedDB is unavailable in this browser."));
@@ -212,7 +278,13 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
   const [status,setStatus]=useState("Loading document…");
   const [lastSaved,setLastSaved]=useState("");
   const [error,setError]=useState("");
+  const [findOpen,setFindOpen]=useState(false);
+  const [findText,setFindText]=useState("");
+  const [replaceText,setReplaceText]=useState("");
+  const [findCaseSensitive,setFindCaseSensitive]=useState(false);
+  const [findMessage,setFindMessage]=useState("");
   const recordRef=useRef(null), titleRef=useRef(title), htmlRef=useRef(html), readyRef=useRef(false), loadGeneration=useRef(0);
+  const saveQueue=useRef(Promise.resolve()), saveVersion=useRef(0);
   titleRef.current=title;htmlRef.current=html;
   const editor=useEditor({
     extensions:[StarterKit.configure({heading:{levels:[1,2,3]}})],
@@ -232,10 +304,10 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
     getAll("files").then(async files=>{
       const found=files.find(file=>file.id===fileId&&isDocument(file));
       if(!found)throw new Error("This document could not be found in this browser.");
-      const content=await found.blob.text();
+      const content=sanitizeDocHtml(await found.blob.text());
       if(!active||generation!==loadGeneration.current)return;
-      recordRef.current=found;setRecord(found);setTitle(found.name);setHtml(content||"<p></p>");
-      editor.commands.setContent(content||"<p></p>",{emitUpdate:false});
+      recordRef.current=found;setRecord(found);setTitle(found.name);setHtml(content);
+      editor.commands.setContent(content,{emitUpdate:false});
       readyRef.current=true;setReady(true);
       setLastSaved(found.modifiedAt?new Date(found.modifiedAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"");
       setStatus("Saved on this device");
@@ -244,19 +316,29 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
   },[editor,fileId]);
   const persist=async(nextTitle,nextHtml)=>{
     const existing=recordRef.current;
-    if(!existing||!readyRef.current)return;
+    if(!existing||!readyRef.current)return false;
+    const version=++saveVersion.current;
     const normalized=(nextTitle||"").trim()||"Untitled document";
-    const blob=new Blob([nextHtml||"<p></p>"],{type:DOC_MIME});
+    const cleanHtml=sanitizeDocHtml(nextHtml||"<p></p>");
+    const blob=new Blob([cleanHtml],{type:DOC_MIME});
     const updated={...existing,name:normalized,type:DOC_MIME,blob,size:blob.size,modifiedAt:Date.now()};
     setStatus("Saving…");
+    const task=saveQueue.current.catch(()=>{}).then(()=>write("files",updated));
+    saveQueue.current=task;
     try{
-      await write("files",updated);
+      await task;
+      if(version!==saveVersion.current)return true;
       recordRef.current=updated;setRecord(updated);
+      setError("");
       if(onSaved) await onSaved();
+      if(version!==saveVersion.current)return true;
       setStatus("Saved on this device");
       setLastSaved(new Date(updated.modifiedAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}));
       return true;
-    }catch(e){setStatus("Save failed");setError(e.message||"Could not save document.");return false;}
+    }catch(e){
+      if(version===saveVersion.current){setStatus("Save failed");setError(e.message||"Could not save document.");}
+      return false;
+    }
   };
   useEffect(()=>{
     if(!ready||!recordRef.current)return;
@@ -267,40 +349,105 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
     if(!readyRef.current||!recordRef.current)return;
     const existing=recordRef.current;
     const normalized=(titleRef.current||"").trim()||"Untitled document";
-    const blob=new Blob([htmlRef.current||"<p></p>"],{type:DOC_MIME});
+    const blob=new Blob([sanitizeDocHtml(htmlRef.current||"<p></p>")],{type:DOC_MIME});
     const finalRecord={...existing,name:normalized,type:DOC_MIME,blob,size:blob.size,modifiedAt:Date.now()};
-    write("files",finalRecord).catch(()=>{});
+    ++saveVersion.current;
+    const task=saveQueue.current.catch(()=>{}).then(()=>write("files",finalRecord));
+    saveQueue.current=task;
+    task.catch(()=>{});
   },[]);
   useEffect(()=>{
     const handleKey=event=>{
       if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="s"){
         event.preventDefault();persist(titleRef.current,htmlRef.current);
       }
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="h"){
+        event.preventDefault();setFindOpen(open=>!open);setFindMessage("");
+      }
     };
     window.addEventListener("keydown",handleKey);
     return ()=>window.removeEventListener("keydown",handleKey);
   },[]);
   const run=command=>{if(editor)command(editor.chain().focus()).run();};
+  const findMatches=()=>{
+    const query=findText;
+    if(!editor||!query)return [];
+    const normalize=value=>findCaseSensitive?value:value.toLocaleLowerCase();
+    const needle=normalize(query),matches=[];
+    editor.state.doc.descendants((node,pos)=>{
+      if(!node.isText||!node.text)return;
+      const haystack=normalize(node.text);
+      let cursor=0,index;
+      while((index=haystack.indexOf(needle,cursor))!==-1){
+        matches.push({from:pos+index,to:pos+index+query.length});
+        cursor=index+Math.max(1,query.length);
+      }
+    });
+    return matches;
+  };
+  const findNext=()=>{
+    const matches=findMatches();
+    if(!matches.length){setFindMessage("No matches found.");return;}
+    const selection=editor.state.selection;
+    const next=matches.find(match=>match.from>=selection.to&&(selection.empty||match.from!==selection.from))||matches[0];
+    editor.chain().focus().setTextSelection({from:next.from,to:next.to}).run();
+    setFindMessage("Match selected. "+matches.length+" occurrence"+(matches.length===1?"":"s")+" found.");
+  };
+  const replaceCurrent=()=>{
+    if(!editor||!findText){setFindMessage("Enter text to find first.");return;}
+    const selection=editor.state.selection;
+    const selected=editor.state.doc.textBetween(selection.from,selection.to,"");
+    const equal=findCaseSensitive?selected===findText:selected.toLocaleLowerCase()===findText.toLocaleLowerCase();
+    if(!selection.empty&&equal){
+      editor.chain().focus().insertContentAt({from:selection.from,to:selection.to},replaceText).run();
+      setFindMessage("Replaced the selected match.");
+      return;
+    }
+    findNext();
+  };
+  const replaceAll=()=>{
+    if(!editor||!findText){setFindMessage("Enter text to find first.");return;}
+    const matches=findMatches();
+    if(!matches.length){setFindMessage("No matches found.");return;}
+    editor.chain().focus().command(({tr})=>{
+      [...matches].reverse().forEach(match=>tr.insertText(replaceText,match.from,match.to));
+      return true;
+    }).run();
+    setFindMessage("Replaced "+matches.length+" occurrence"+(matches.length===1?"":"s")+".");
+  };
   const addLink=()=>{
     if(!editor)return;
     const current=editor.getAttributes("link").href||"https://";
     const url=window.prompt("Enter a link URL",current);
     if(url===null)return;
     if(!url.trim()){editor.chain().focus().extendMarkRange("link").unsetLink().run();return;}
-    const normalized=/^[a-z][a-z0-9+.-]*:/i.test(url.trim())?url.trim():"https://"+url.trim();
-    try{editor.chain().focus().extendMarkRange("link").setLink({href:normalized,target:"_blank",rel:"noopener noreferrer"}).run();}
-    catch{setError("That link could not be added.");}
+    const value=url.trim();
+    const normalized=/^[a-z][a-z0-9+.-]*:/i.test(value)?value:"https://"+value;
+    try{
+      const parsed=new URL(normalized,window.location.href);
+      if(!["http:","https:","mailto:","tel:"].includes(parsed.protocol)||(["http:","https:"].includes(parsed.protocol)&&!parsed.hostname)){
+        setError("Use an http, https, mailto, or tel link.");return;
+      }
+      const href=["mailto:","tel:"].includes(parsed.protocol)?normalized:parsed.href;
+      editor.chain().focus().extendMarkRange("link").setLink({href,target:"_blank",rel:"noopener noreferrer"}).run();
+      setError("");
+    }catch{setError("That link could not be added. Use a valid http, https, mailto, or tel address.");}
   };
   const exportAs=async format=>{
     if(!editor)return;
     const safe=(title||"Untitled document").trim()||"Untitled document";
-    const content=format==="txt"?editor.getText("\n"):fullDocumentHtml(safe,editor.getHTML());
-    const blob=new Blob([content],{type:format==="txt"?"text/plain;charset=utf-8":"text/html;charset=utf-8"});
+    const content=format==="txt"?editor.getText("\n"):format==="md"?htmlToMarkdown(editor.getHTML()):fullDocumentHtml(safe,editor.getHTML());
+    const mime=format==="txt"?"text/plain;charset=utf-8":format==="md"?"text/markdown;charset=utf-8":"text/html;charset=utf-8";
+    const blob=new Blob([content],{type:mime});
     const url=URL.createObjectURL(blob),anchor=document.createElement("a");
-    anchor.href=url;anchor.download=safe.replace(/[\\\\/:*?"<>|]/g,"_")+(format==="txt"?".txt":".html");
+    anchor.href=url;anchor.download=safe.replace(/[\\\\/:*?"<>|]/g,"_")+(format==="txt"?".txt":format==="md"?".md":".html");
     document.body.appendChild(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
   };
   const copyLink=()=>onCopyLink("doc",record);
+  const plainText=editor?.getText("\n")||"";
+  const wordCount=(plainText.match(/\S+/g)||[]).length;
+  const characterCount=plainText.length;
+  const readingMinutes=Math.max(1,Math.ceil(wordCount/200));
   return <FluentProvider theme={dark?webDarkTheme:webLightTheme}>
     <div className={s.shell+" ff-doc-page"}>
       <header className={s.header+" ff-doc-header"}>
@@ -311,11 +458,11 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
           <Button appearance="secondary" onClick={copyLink} disabled={!record}>Copy link</Button>
-          <Menu><MenuTrigger disableButtonEnhancement><Button appearance="secondary" icon={<ArrowDownload24Regular/>}>Export</Button></MenuTrigger><MenuPopover><MenuList><MenuItem onClick={()=>exportAs("html")}>Download as HTML</MenuItem><MenuItem onClick={()=>exportAs("txt")}>Download as plain text</MenuItem></MenuList></MenuPopover></Menu>
+          <Menu><MenuTrigger disableButtonEnhancement><Button appearance="secondary" icon={<ArrowDownload24Regular/>}>Export</Button></MenuTrigger><MenuPopover><MenuList><MenuItem onClick={()=>exportAs("html")}>Download as HTML</MenuItem><MenuItem onClick={()=>exportAs("md")}>Download as Markdown</MenuItem><MenuItem onClick={()=>exportAs("txt")}>Download as plain text</MenuItem><MenuItem onClick={()=>window.print()}>Print document</MenuItem></MenuList></MenuPopover></Menu>
           <Button appearance="primary" onClick={()=>persist(titleRef.current,htmlRef.current)} disabled={!ready}>Save now</Button>
         </div>
       </header>
-      <div className={s.toolbar} role="toolbar" aria-label="Document formatting">
+      <div className={s.toolbar+" ff-doc-toolbar"} role="toolbar" aria-label="Document formatting">
         <Tooltip content="Paragraph" relationship="label"><Button size="small" appearance={editor?.isActive("paragraph")?"primary":"subtle"} onClick={()=>run(chain=>chain.setParagraph())}>P</Button></Tooltip>
         <Tooltip content="Heading 1" relationship="label"><Button size="small" appearance={editor?.isActive("heading",{level:1})?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleHeading({level:1}))}>H1</Button></Tooltip>
         <Tooltip content="Heading 2" relationship="label"><Button size="small" appearance={editor?.isActive("heading",{level:2})?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleHeading({level:2}))}>H2</Button></Tooltip>
@@ -334,15 +481,26 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
         <Tooltip content="Insert or edit link" relationship="label"><Button size="small" appearance={editor?.isActive("link")?"primary":"subtle"} onClick={addLink}>Link</Button></Tooltip>
         <Tooltip content="Remove formatting" relationship="label"><Button size="small" appearance="subtle" onClick={()=>run(chain=>chain.unsetAllMarks().clearNodes())}>Clear format</Button></Tooltip>
         <span style={{flex:1}}/>
+        <Button size="small" appearance={findOpen?"primary":"subtle"} onClick={()=>{setFindOpen(open=>!open);setFindMessage("");}}>Find &amp; replace</Button>
         <Button size="small" appearance="subtle" onClick={()=>run(chain=>chain.undo())} disabled={!editor?.can().undo()}>Undo</Button>
         <Button size="small" appearance="subtle" onClick={()=>run(chain=>chain.redo())} disabled={!editor?.can().redo()}>Redo</Button>
       </div>
-      <main className={s.workarea}>
+      {findOpen&&<div className="ff-doc-find-panel" style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap",padding:"10px 22px",backgroundColor:tokens.colorNeutralBackground1,borderBottom:"1px solid "+tokens.colorNeutralStroke2}}>
+        <Input value={findText} onChange={(_,data)=>{setFindText(data.value);setFindMessage("");}} placeholder="Find text" aria-label="Find text" onKeyDown={event=>{if(event.key==="Enter"){event.preventDefault();findNext();}}}/>
+        <Input value={replaceText} onChange={(_,data)=>setReplaceText(data.value)} placeholder="Replace with" aria-label="Replacement text" onKeyDown={event=>{if(event.key==="Enter"){event.preventDefault();replaceCurrent();}}}/>
+        <Checkbox checked={findCaseSensitive} onChange={(_,data)=>setFindCaseSensitive(data.checked)} label="Match case"/>
+        <Button size="small" appearance="secondary" onClick={findNext} disabled={!findText}>Find next</Button>
+        <Button size="small" appearance="secondary" onClick={replaceCurrent} disabled={!findText}>Replace</Button>
+        <Button size="small" appearance="primary" onClick={replaceAll} disabled={!findText}>Replace all</Button>
+        <Button size="small" appearance="subtle" onClick={()=>{setFindOpen(false);setFindMessage("");}}>Close</Button>
+        {findMessage&&<Caption1 role="status">{findMessage}</Caption1>}
+      </div>}
+      <main className={s.workarea+" ff-doc-workarea"}>
         {error&&<div style={{maxWidth:920,margin:"0 auto 12px"}}><MessageBar intent="error"><MessageBarBody>{error}</MessageBarBody></MessageBar></div>}
         {!editor||!ready?<div style={{padding:40,display:"flex",justifyContent:"center"}}><Spinner label={error?"Document unavailable":"Loading document…"}/></div>:
           <div className={s.paper+" ff-doc-paper"}><EditorContent editor={editor} className="ff-doc-editor-content"/></div>}
       </main>
-      <footer className={s.footer}><ShieldCheckmark24Regular/><Caption1>Stored locally in this browser</Caption1><span style={{flex:1}}/><Caption1>Ctrl/⌘+S saves now · Autosave is enabled</Caption1></footer>
+      <footer className={s.footer+" ff-doc-footer"}><ShieldCheckmark24Regular/><Caption1>Stored locally in this browser</Caption1><span style={{flex:1}}/><Caption1>{wordCount} words · {characterCount} characters · about {readingMinutes} min read</Caption1><Caption1>Ctrl/⌘+S saves · Ctrl/⌘+H finds text</Caption1></footer>
     </div>
   </FluentProvider>;
 }

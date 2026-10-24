@@ -24,3 +24,15 @@ html,body,#root{min-height:100%;margin:0}body{font-family:"Segoe UI",-apple-syst
   .ff-doc-page .ff-doc-title-input { width:min(100%, 70vw); }
   .ff-doc-editor-content .tiptap { padding:28px 20px; }
 }
+
+.ff-doc-find-panel input { width:min(280px,100%); }
+@media print {
+  @page { margin:18mm; }
+  html,body,#root { min-height:0!important; background:#fff!important; }
+  .ff-doc-header,.ff-doc-toolbar,.ff-doc-find-panel,.ff-doc-footer { display:none!important; }
+  .ff-doc-page { min-height:0!important; background:#fff!important; color:#000!important; }
+  .ff-doc-workarea { padding:0!important; }
+  .ff-doc-paper { max-width:none!important; min-height:0!important; border:0!important; border-radius:0!important; box-shadow:none!important; overflow:visible!important; background:#fff!important; }
+  .ff-doc-editor-content .tiptap { min-height:0!important; padding:0!important; color:#000!important; overflow:visible!important; }
+  .ff-doc-editor-content .tiptap a { color:#000!important; }
+}

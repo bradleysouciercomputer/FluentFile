@@ -5,7 +5,7 @@ import TaskList from "@tiptap/extension-task-list";
 import TaskItem from "@tiptap/extension-task-item";
 import {
   FluentProvider, webLightTheme, webDarkTheme, makeStyles, tokens,
-  Button, Input, SearchBox, Checkbox, Text, Title2, Title3, Body1, Caption1,
+  Button, Input, Textarea, SearchBox, Checkbox, Text, Title2, Title3, Body1, Caption1,
   Card, Divider, Toolbar, ToolbarButton, Badge, Tooltip, Spinner,
   MessageBar, MessageBarBody, Dialog, DialogSurface, DialogBody,
   DialogTitle, DialogContent, DialogActions, Field, Dropdown, Option,

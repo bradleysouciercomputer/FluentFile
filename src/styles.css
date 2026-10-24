@@ -167,6 +167,8 @@ html,body,#root{min-height:100%;margin:0}body{font-family:"Segoe UI",-apple-syst
 .ff-slide-present-stage { position:relative; flex:1; min-height:0; aspect-ratio:16/9; width:min(100%,1400px); max-height:calc(100vh - 132px); margin:auto; box-sizing:border-box; padding:clamp(30px,6vw,100px); display:flex; flex-direction:column; justify-content:center; gap:clamp(12px,3vh,28px); overflow:hidden; border-radius:8px; background:var(--slide-bg); color:var(--slide-text); }
 .ff-slide-present-stage h1 { position:relative; z-index:1; font-size:clamp(32px,5vw,74px); font-weight:750; letter-spacing:-.04em; line-height:1.05; margin:0; overflow-wrap:anywhere; }
 .ff-slide-present-body { position:relative; z-index:1; font-size:clamp(18px,2.2vw,30px); line-height:1.45; white-space:pre-wrap; overflow-wrap:anywhere; }
+.ff-slide-present-bullets { position:relative; z-index:1; margin:0; padding-left:1.15em; font-size:clamp(18px,2.2vw,30px); line-height:1.45; overflow-wrap:anywhere; }
+.ff-slide-present-bullets li { padding:.16em 0; }
 .ff-slide-present-stage.layout-title { text-align:center; align-items:center; }
 .ff-slide-present-stage.layout-title h1,.ff-slide-present-stage.layout-title .ff-slide-present-body { max-width:100%; }
 .ff-slide-present-stage.layout-quote h1 { font-weight:650; font-size:clamp(26px,4.2vw,58px); }

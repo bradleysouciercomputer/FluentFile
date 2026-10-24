@@ -88,3 +88,14 @@ html,body,#root{min-height:100%;margin:0}body{font-family:"Segoe UI",-apple-syst
   .ff-canvas-workarea { padding:0!important; }
   .ff-canvas-board { border:0!important; box-shadow:none!important; }
 }
+
+/* NEW release markers for FluentFile Docs and Canvases */
+.ff-new-service { position:relative!important; }
+.ff-new-service-badge { position:absolute!important; top:0!important; right:0!important; z-index:2; transform:translate(22%,-18%); font-size:9px!important; line-height:12px!important; min-width:0!important; padding:0 4px!important; }
+.ff-workspace-title-row { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
+.ff-canvas-title-row { display:flex; align-items:center; gap:8px; min-width:0; }
+.ff-canvas-title-row > input { min-width:0; }
+@media(max-width:600px) {
+  .ff-new-service-badge { transform:translate(12%,-12%); font-size:8px!important; padding:0 3px!important; }
+  .ff-canvas-title-row { flex-wrap:wrap; }
+}

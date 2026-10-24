@@ -905,7 +905,7 @@ const slidesHtmlDocument = (title,model) => {
     '.quote-slide h1{font-size:clamp(26px,4vw,54px);font-weight:650;max-width:22ch}'+
     '.quote-slide .slide-body{font-size:clamp(16px,1.8vw,24px);opacity:.85}'+
     '.slide-accent{position:absolute;bottom:0;left:0;width:100%;height:12px;background:'+theme.accent+'}'+
-    '@media print{html,body{background:#fff;scroll-snap-type:none}.slide{height:7.5in;min-height:0;width:10in;padding:.7in 1in;background:'+theme.background+'!important;print-color-adjust:exact;-webkit-print-color-adjust:exact;overflow:hidden}.slide-accent{height:8px}}'+
+    '@media print{@page{size:landscape;margin:.25in}html,body{background:#fff;scroll-snap-type:none}.slide{height:5.625in;min-height:0;width:10in;padding:.45in .7in;background:'+theme.background+'!important;print-color-adjust:exact;-webkit-print-color-adjust:exact;overflow:hidden}.slide-accent{height:8px}}'+
     '</style></head><body>'+slides+'</body></html>';
 };
 function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
@@ -1077,7 +1077,7 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
         <Button appearance="primary" onClick={()=>addSlide("content")}>+ Add slide</Button>
         <Menu><MenuTrigger disableButtonEnhancement><Button appearance="secondary">Add layout</Button></MenuTrigger><MenuPopover><MenuList>
           <MenuItem onClick={()=>addSlide("title")}>Title slide</MenuItem><MenuItem onClick={()=>addSlide("content")}>Content slide</MenuItem><MenuItem onClick={()=>addSlide("quote")}>Quote slide</MenuItem>
-        </MenuList></Menu>
+        </MenuList></MenuPopover></Menu>
         <Button appearance="secondary" onClick={duplicateSlide} disabled={!currentSlide}>Duplicate</Button>
         <Button appearance="subtle" onClick={()=>moveSlide(-1)} disabled={!currentSlide||currentIndex<=0}>Move up</Button>
         <Button appearance="subtle" onClick={()=>moveSlide(1)} disabled={!currentSlide||currentIndex>=slides.length-1}>Move down</Button>
@@ -1195,7 +1195,7 @@ function App() {
         setFolderId(file.folderId||null);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");
         if(isDocument(file)){
           if(isDeleted(file)){setView("trash");setDocumentId(null);toast("This document is in the recycle bin. Restore it before editing.");return;}
-          if(parts[0]==="canvas"){setView("files");setDocumentId(null);toast("This link does not point to a canvas.");return;}
+          if(parts[0]==="canvas"||parts[0]==="slide"){setView("files");setDocumentId(null);setSlidesId(null);toast("This link does not point to a canvas.");return;}
           setView("doc");setDocumentId(file.id);setCanvasId(null);return;
         }
         if(isCanvas(file)){

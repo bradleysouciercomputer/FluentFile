@@ -306,7 +306,7 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
   const markDirty=()=>{dirtyRef.current=true;setDirty(true);};
   titleRef.current=title;htmlRef.current=html;
   const editor=useEditor({
-    extensions:[StarterKit.configure({heading:{levels:[1,2,3]}}),TaskList,TaskItem.configure({nested:true})],
+    extensions:[StarterKit.configure({heading:{levels:[1,2,3]}}),TaskList.configure({HTMLAttributes:{class:"ff-task-list"}}),TaskItem.configure({nested:true,HTMLAttributes:{class:"ff-task-item"}})],
     content:"<p></p>",
     onUpdate:({editor})=>{
       if(!readyRef.current)return;

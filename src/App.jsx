@@ -268,7 +268,7 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
     workarea:{flex:1,padding:"24px 16px 60px"},
     paper:{maxWidth:"920px",minHeight:"72vh",margin:"0 auto",backgroundColor:tokens.colorNeutralBackground1,border:"1px solid "+tokens.colorNeutralStroke2,borderRadius:tokens.borderRadiusLarge,boxShadow:tokens.shadow4,overflow:"hidden"},
     editor:{minHeight:"72vh",padding:"48px clamp(22px, 7vw, 88px)",fontSize:"16px",lineHeight:"1.7",color:tokens.colorNeutralForeground1,outline:"none"},
-    footer:{padding:"10px 22px",display:"flex",alignItems:"center",gap:"8px",color:tokens.colorNeutralForeground3,backgroundColor:tokens.colorNeutralBackground1,borderTop:"1px solid "+tokens.colorNeutralStroke2}
+    footer:{padding:"10px 22px",display:"flex",alignItems:"center",flexWrap:"wrap",gap:"8px",color:tokens.colorNeutralForeground3,backgroundColor:tokens.colorNeutralBackground1,borderTop:"1px solid "+tokens.colorNeutralStroke2}
   });
   const s=docStyles();
   const [record,setRecord]=useState(null);
@@ -353,7 +353,7 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
     if(!ready||!dirty||!recordRef.current)return;
     const timer=setTimeout(()=>{persist(title,html);},650);
     return ()=>clearTimeout(timer);
-  },[title,html,ready]);
+  },[title,html,ready,dirty]);
   useEffect(()=>()=> {
     if(!readyRef.current||!recordRef.current||!dirtyRef.current)return;
     const existing=recordRef.current;

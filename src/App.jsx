@@ -15,7 +15,7 @@ import {
   Folder24Regular, FolderOpen24Regular, Home24Regular, Clock24Regular,
   Star24Regular, Delete24Regular, ArrowUpload24Regular, ArrowDownload24Regular,
   MoreHorizontal24Regular, Grid24Regular, AppsList24Regular, Document24Regular,
-  Image24Regular, VideoClip24Regular, ArrowUndo24Regular,
+  Image24Regular, VideoClip24Regular, ArrowUndo24Regular, PaintBrush24Regular,
   Rename24Regular, Dismiss24Regular, ShieldCheckmark24Regular, FolderAdd24Regular,
   ChevronRight12Regular, ArrowMove24Regular, DocumentPdf24Regular, Attach24Regular,
   Open24Regular
@@ -23,7 +23,9 @@ import {
 
 const DB = "fluentfile-browser-store";
 const DOC_MIME = "application/vnd.fluentfile.document+html";
+const CANVAS_MIME = "application/vnd.fluentfile.canvas+json";
 const isDocument = file => Boolean(file && file.type === DOC_MIME);
+const isCanvas = file => Boolean(file && file.type === CANVAS_MIME);
 const escapedHtml = value => String(value || "").replace(/[&<>"]/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[char]));
 const sanitizeDocHtml = input => {
   const parsed = new DOMParser().parseFromString(String(input || ""), "text/html");
@@ -158,6 +160,7 @@ const isDeleted = file => !!file.deletedAt;
 const kind = file => {
   const e = ext(file.name), t = (file.type || "").toLowerCase();
   if (isDocument(file)) return "document";
+  if (isCanvas(file)) return "canvas";
   if (t.startsWith("image/") || ["png","jpg","jpeg","gif","webp","svg","bmp","avif"].includes(e)) return "image";
   if (t.startsWith("video/") || ["mp4","webm","mov","m4v"].includes(e)) return "video";
   if (t.startsWith("audio/") || ["mp3","wav","ogg","m4a","flac"].includes(e)) return "audio";
@@ -172,6 +175,7 @@ const iconFor = file => {
     case "audio": return <Document24Regular />;
     case "pdf": return <DocumentPdf24Regular />;
     case "document": return <Document24Regular />;
+    case "canvas": return <PaintBrush24Regular />;
     case "file": return <Attach24Regular />;
     default: return <Document24Regular />;
   }
@@ -565,6 +569,290 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
   </FluentProvider>;
 }
 
+
+function drawFluentCanvas(canvas, model, showGrid = false) {
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  const width = model.width || 1200, height = model.height || 800;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = model.background || "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (showGrid) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(100,116,139,.18)";
+    ctx.lineWidth = 1;
+    for (let x = 40; x < width; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, height); ctx.stroke(); }
+    for (let y = 40; y < height; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
+    ctx.restore();
+  }
+  (model.elements || []).forEach(element => {
+    const points = element.points || [];
+    ctx.save();
+    ctx.strokeStyle = element.color || "#1f2937";
+    ctx.fillStyle = element.color || "#1f2937";
+    ctx.lineWidth = Math.max(1, element.size || 4);
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    if (element.type === "path" && points.length) {
+      ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
+      points.slice(1).forEach(point => ctx.lineTo(point.x, point.y));
+      if (points.length === 1) { ctx.lineTo(points[0].x + 0.1, points[0].y + 0.1); }
+      ctx.stroke();
+    } else if (points.length >= 2 && element.type === "line") {
+      ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y); ctx.lineTo(points[1].x, points[1].y); ctx.stroke();
+    } else if (points.length >= 2 && element.type === "rect") {
+      const left = Math.min(points[0].x, points[1].x), top = Math.min(points[0].y, points[1].y);
+      ctx.strokeRect(left, top, Math.abs(points[1].x - points[0].x), Math.abs(points[1].y - points[0].y));
+    } else if (points.length >= 2 && element.type === "ellipse") {
+      const cx = (points[0].x + points[1].x) / 2, cy = (points[0].y + points[1].y) / 2;
+      ctx.beginPath(); ctx.ellipse(cx, cy, Math.abs(points[1].x - points[0].x) / 2, Math.abs(points[1].y - points[0].y) / 2, 0, 0, Math.PI * 2); ctx.stroke();
+    } else if (element.type === "text" && element.text) {
+      ctx.font = (element.size || 28) + "px Segoe UI, Arial, sans-serif";
+      ctx.textBaseline = "top";
+      ctx.fillText(element.text, element.x || 0, element.y || 0, Math.max(1, width - (element.x || 0) - 12));
+    }
+    ctx.restore();
+  });
+}
+function FluentCanvasEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
+  const canvasStyles = makeStyles({
+    shell:{minHeight:"100vh",display:"flex",flexDirection:"column",backgroundColor:tokens.colorNeutralBackground2,color:tokens.colorNeutralForeground1},
+    header:{display:"flex",alignItems:"center",gap:"12px",flexWrap:"wrap",padding:"12px 22px",backgroundColor:tokens.colorNeutralBackground1,borderBottom:"1px solid "+tokens.colorNeutralStroke2},
+    titleInput:{width:"min(420px, 44vw)"},
+    status:{color:tokens.colorNeutralForeground3,whiteSpace:"nowrap"},
+    toolbar:{display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap",padding:"10px 18px",backgroundColor:tokens.colorNeutralBackground1,borderBottom:"1px solid "+tokens.colorNeutralStroke2},
+    boardArea:{flex:1,padding:"22px 18px 34px",overflow:"auto"},
+    board:{maxWidth:"1280px",margin:"0 auto",border:"1px solid "+tokens.colorNeutralStroke1,borderRadius:tokens.borderRadiusMedium,overflow:"hidden",backgroundColor:"#fff",boxShadow:tokens.shadow8},
+    canvas:{display:"block",width:"100%",height:"auto",touchAction:"none",cursor:"crosshair"},
+    footer:{display:"flex",alignItems:"center",flexWrap:"wrap",gap:"10px",padding:"10px 18px",backgroundColor:tokens.colorNeutralBackground1,borderTop:"1px solid "+tokens.colorNeutralStroke2,color:tokens.colorNeutralForeground3}
+  });
+  const s=canvasStyles();
+  const [record,setRecord]=useState(null);
+  const [title,setTitle]=useState("");
+  const [elements,setElements]=useState([]);
+  const [background,setBackground]=useState("#ffffff");
+  const [tool,setTool]=useState("pen");
+  const [color,setColor]=useState("#1f2937");
+  const [brushSize,setBrushSize]=useState(5);
+  const [showGrid,setShowGrid]=useState(false);
+  const [ready,setReady]=useState(false);
+  const [dirty,setDirty]=useState(false);
+  const [status,setStatus]=useState("Loading canvas…");
+  const [lastSaved,setLastSaved]=useState("");
+  const [error,setError]=useState("");
+  const [canUndo,setCanUndo]=useState(false),[canRedo,setCanRedo]=useState(false);
+  const canvasRef=useRef(null),recordRef=useRef(null),titleRef=useRef(""),elementsRef=useRef([]),backgroundRef=useRef("#ffffff");
+  const readyRef=useRef(false),dirtyRef=useRef(false),saveQueue=useRef(Promise.resolve()),saveVersion=useRef(0);
+  const undoStack=useRef([]),redoStack=useRef([]),drawingIndex=useRef(-1),loadGeneration=useRef(0);
+  titleRef.current=title;
+  const modelRef=useRef(null);
+  const currentModel=()=>({version:1,width:1200,height:800,background:backgroundRef.current,elements:elementsRef.current});
+  modelRef.current=currentModel();
+  const markDirty=()=>{dirtyRef.current=true;setDirty(true);setStatus("Unsaved changes");};
+  const syncHistory=()=>{setCanUndo(undoStack.current.length>0);setCanRedo(redoStack.current.length>0);};
+  const setElementModel=next=>{
+    elementsRef.current=next;setElements(next);
+    modelRef.current={version:1,width:1200,height:800,background:backgroundRef.current,elements:next};
+    markDirty();
+  };
+  const remember=()=>{
+    undoStack.current=[...undoStack.current,JSON.parse(JSON.stringify(elementsRef.current))].slice(-80);
+    redoStack.current=[];
+    syncHistory();
+  };
+  useEffect(()=>{
+    let active=true;
+    const generation=++loadGeneration.current;
+    readyRef.current=false;setReady(false);setError("");setStatus("Loading canvas…");
+    getAll("files").then(async files=>{
+      const found=files.find(file=>file.id===fileId&&isCanvas(file));
+      if(!found)throw new Error("This canvas could not be found in this browser.");
+      let parsed;
+      try { parsed=JSON.parse(await found.blob.text()); } catch { throw new Error("This canvas file is damaged or could not be read."); }
+      if(!parsed||!Array.isArray(parsed.elements))parsed={version:1,width:1200,height:800,background:"#ffffff",elements:[]};
+      if(!active||generation!==loadGeneration.current)return;
+      recordRef.current=found;setRecord(found);setTitle(found.name);
+      const nextElements=parsed.elements.filter(e=>e&&typeof e.type==="string").map(e=>({...e}));
+      elementsRef.current=nextElements;setElements(nextElements);
+      const nextBackground=/^#[0-9a-f]{6}$/i.test(parsed.background||"")?parsed.background:"#ffffff";
+      backgroundRef.current=nextBackground;setBackground(nextBackground);
+      modelRef.current={version:1,width:1200,height:800,background:nextBackground,elements:nextElements};
+      undoStack.current=[];redoStack.current=[];syncHistory();
+      dirtyRef.current=false;setDirty(false);readyRef.current=true;setReady(true);
+      setLastSaved(found.modifiedAt?new Date(found.modifiedAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"");
+      setStatus("Saved on this device");
+    }).catch(e=>{if(active){setError(e.message||"Could not open canvas.");setStatus("Could not load canvas.");}});
+    return ()=>{active=false;};
+  },[fileId]);
+  useEffect(()=>{drawFluentCanvas(canvasRef.current,currentModel(),showGrid);},[elements,background,showGrid,ready]);
+  const persist=async(nextTitle,model=currentModel())=>{
+    const existing=recordRef.current;
+    if(!existing||!readyRef.current||!dirtyRef.current)return false;
+    const version=++saveVersion.current;
+    const normalized=(nextTitle||"").trim()||"Untitled canvas";
+    const payload={version:1,width:1200,height:800,background:model.background||"#ffffff",elements:model.elements||[]};
+    const blob=new Blob([JSON.stringify(payload)],{type:CANVAS_MIME});
+    const updated={...existing,name:normalized,type:CANVAS_MIME,blob,size:blob.size,modifiedAt:Date.now()};
+    setStatus("Saving…");
+    const task=saveQueue.current.catch(()=>{}).then(()=>write("files",updated));
+    saveQueue.current=task;
+    try{
+      await task;
+      if(version!==saveVersion.current)return true;
+      recordRef.current=updated;setRecord(updated);setError("");
+      if(onSaved)await onSaved();
+      if(version!==saveVersion.current)return true;
+      const latest=currentModel();
+      if(normalized===((titleRef.current||"").trim()||"Untitled canvas")&&JSON.stringify(payload)===JSON.stringify(latest)){
+        dirtyRef.current=false;setDirty(false);setStatus("Saved on this device");
+        setLastSaved(new Date(updated.modifiedAt).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}));
+      } else setStatus("Unsaved changes");
+      return true;
+    }catch(e){if(version===saveVersion.current){setStatus("Save failed");setError(e.message||"Could not save canvas.");}return false;}
+  };
+  useEffect(()=>{
+    if(!ready||!dirty)return;
+    const snapshot={version:1,width:1200,height:800,background,elements};
+    const timer=setTimeout(()=>persist(title,snapshot),700);
+    return ()=>clearTimeout(timer);
+  },[ready,dirty,title,elements,background]);
+  useEffect(()=>()=> {
+    if(!readyRef.current||!dirtyRef.current||!recordRef.current)return;
+    const existing=recordRef.current;
+    const model=currentModel(),normalized=(titleRef.current||"").trim()||"Untitled canvas";
+    const blob=new Blob([JSON.stringify(model)],{type:CANVAS_MIME});
+    const finalRecord={...existing,name:normalized,type:CANVAS_MIME,blob,size:blob.size,modifiedAt:Date.now()};
+    ++saveVersion.current;
+    const task=saveQueue.current.catch(()=>{}).then(()=>write("files",finalRecord));
+    saveQueue.current=task;task.catch(()=>{});
+  },[]);
+  useEffect(()=>{
+    const onKey=event=>{
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="s"){event.preventDefault();persist(titleRef.current,currentModel());}
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==="z"&&!event.shiftKey){event.preventDefault();undo();}
+      if((event.ctrlKey||event.metaKey)&&(event.key.toLowerCase()==="y"||(event.shiftKey&&event.key.toLowerCase()==="z"))){event.preventDefault();redo();}
+    };
+    window.addEventListener("keydown",onKey);
+    return ()=>window.removeEventListener("keydown",onKey);
+  },[]);
+  const undo=()=>{
+    if(!undoStack.current.length)return;
+    redoStack.current=[...redoStack.current,JSON.parse(JSON.stringify(elementsRef.current))];
+    const next=undoStack.current.pop();
+    setElementModel(next);syncHistory();
+  };
+  const redo=()=>{
+    if(!redoStack.current.length)return;
+    undoStack.current=[...undoStack.current,JSON.parse(JSON.stringify(elementsRef.current))];
+    const next=redoStack.current.pop();
+    setElementModel(next);syncHistory();
+  };
+  const pointFromEvent=event=>{
+    const rect=event.currentTarget.getBoundingClientRect();
+    return {x:Math.max(0,Math.min(1200,(event.clientX-rect.left)*1200/rect.width)),y:Math.max(0,Math.min(800,(event.clientY-rect.top)*800/rect.height))};
+  };
+  const startDrawing=event=>{
+    if(!ready)return;
+    if(event.button!==undefined&&event.button!==0)return;
+    const point=pointFromEvent(event);
+    if(tool==="text"){
+      const value=window.prompt("Text to add to the canvas");
+      if(value===null||!value.trim())return;
+      remember();
+      const next=[...elementsRef.current,{type:"text",x:point.x,y:point.y,text:value.trim(),color,size:Math.max(14,brushSize*5)}];
+      setElementModel(next);return;
+    }
+    remember();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const shapeType=tool==="line"||tool==="rect"||tool==="ellipse"?tool:"path";
+    const element={type:shapeType,color:tool==="eraser"?backgroundRef.current:color,size:tool==="eraser"?Math.max(12,brushSize*4):brushSize,points:[point]};
+    const next=[...elementsRef.current,element];
+    elementsRef.current=next;drawingIndex.current=next.length-1;setElements(next);modelRef.current={version:1,width:1200,height:800,background:backgroundRef.current,elements:next};markDirty();
+  };
+  const continueDrawing=event=>{
+    const index=drawingIndex.current;
+    if(index<0)return;
+    const point=pointFromEvent(event);
+    const next=elementsRef.current.map((element,i)=>{
+      if(i!==index)return element;
+      if(element.type==="path")return {...element,points:[...element.points,point]};
+      return {...element,points:[element.points[0],point]};
+    });
+    elementsRef.current=next;setElements(next);modelRef.current={version:1,width:1200,height:800,background:backgroundRef.current,elements:next};markDirty();
+  };
+  const stopDrawing=event=>{
+    drawingIndex.current=-1;
+    try{if(event.currentTarget.hasPointerCapture?.(event.pointerId))event.currentTarget.releasePointerCapture(event.pointerId);}catch{}
+  };
+  const changeBackground=value=>{
+    if(!/^#[0-9a-f]{6}$/i.test(value))return;
+    backgroundRef.current=value;setBackground(value);modelRef.current={version:1,width:1200,height:800,background:value,elements:elementsRef.current};markDirty();
+  };
+  const clearCanvas=()=>{
+    if(!elementsRef.current.length)return;
+    if(!window.confirm("Clear the entire canvas? You can undo this action."))return;
+    remember();setElementModel([]);
+  };
+  const exportPNG=()=>{
+    const source=canvasRef.current;if(!source)return;
+    const output=document.createElement("canvas");output.width=1200;output.height=800;
+    drawFluentCanvas(output,currentModel(),false);
+    output.toBlob(blob=>{
+      if(!blob){setError("Could not export this canvas as PNG.");return;}
+      const url=URL.createObjectURL(blob),a=document.createElement("a");
+      a.href=url;a.download=((titleRef.current||"Untitled canvas").trim()||"Untitled canvas").replace(/[\\/:*?"<>|]/g,"_")+".png";
+      document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+    },"image/png");
+  };
+  const exportJSON=()=>{
+    const blob=new Blob([JSON.stringify(currentModel(),null,2)],{type:"application/json;charset=utf-8"});
+    const url=URL.createObjectURL(blob),a=document.createElement("a");
+    a.href=url;a.download=((titleRef.current||"Untitled canvas").trim()||"Untitled canvas").replace(/[\\/:*?"<>|]/g,"_")+".canvas.json";
+    document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+  };
+  const saveAndBack=async()=>{
+    if(record){const saved=!dirtyRef.current||await persist(titleRef.current,currentModel());if(saved)onBack(record.folderId);}
+    else onBack(null);
+  };
+  const copyLink=()=>onCopyLink("canvas",record);
+  return <FluentProvider theme={dark?webDarkTheme:webLightTheme}>
+    <div className={s.shell+" ff-canvas-page"}>
+      <header className={s.header+" ff-canvas-header"}>
+        <Button appearance="subtle" icon={<FolderOpen24Regular/>} onClick={saveAndBack}>Back to files</Button>
+        <div style={{minWidth:0,display:"grid",gap:2}}>
+          <Input className={s.titleInput+" ff-canvas-title"} size="large" value={title} onChange={(_,data)=>{titleRef.current=data.value;setTitle(data.value);markDirty();}} placeholder="Untitled canvas" aria-label="Canvas title"/>
+          <Text size={100} className={s.status}>{status}{lastSaved&&status==="Saved on this device"?" · "+lastSaved:""}</Text>
+        </div>
+        <div style={{marginLeft:"auto",display:"flex",gap:8,flexWrap:"wrap"}}>
+          <Button appearance="secondary" onClick={copyLink} disabled={!record}>Copy link</Button>
+          <Menu><MenuTrigger disableButtonEnhancement><Button appearance="secondary" icon={<ArrowDownload24Regular/>}>Export</Button></MenuTrigger><MenuPopover><MenuList><MenuItem onClick={exportPNG}>Download as PNG</MenuItem><MenuItem onClick={exportJSON}>Download editable canvas JSON</MenuItem></MenuList></MenuPopover></Menu>
+          <Button appearance="primary" onClick={()=>persist(titleRef.current,currentModel())} disabled={!ready||!dirty}>Save now</Button>
+        </div>
+      </header>
+      <div className={s.toolbar+" ff-canvas-toolbar"} role="toolbar" aria-label="Canvas tools">
+        {[
+          ["pen","Pen"],["eraser","Eraser"],["line","Line"],["rect","Rectangle"],["ellipse","Ellipse"],["text","Text"]
+        ].map(([value,label])=><Button key={value} size="small" appearance={tool===value?"primary":"subtle"} onClick={()=>setTool(value)}>{label}</Button>)}
+        <Divider vertical/>
+        <label className="ff-canvas-control">Ink <input type="color" value={color} onChange={event=>setColor(event.target.value)} aria-label="Ink color"/></label>
+        <label className="ff-canvas-control">Paper <input type="color" value={background} onChange={event=>changeBackground(event.target.value)} aria-label="Canvas background color"/></label>
+        <label className="ff-canvas-control">Size <input type="range" min="1" max="24" value={brushSize} onChange={event=>setBrushSize(Number(event.target.value))} aria-label="Brush size"/><Caption1>{brushSize}px</Caption1></label>
+        <Button size="small" appearance={showGrid?"primary":"subtle"} onClick={()=>setShowGrid(value=>!value)}>Grid</Button>
+        <Button size="small" appearance="subtle" onClick={undo} disabled={!canUndo}>Undo</Button>
+        <Button size="small" appearance="subtle" onClick={redo} disabled={!canRedo}>Redo</Button>
+        <Button size="small" appearance="subtle" onClick={clearCanvas}>Clear</Button>
+      </div>
+      <main className={s.boardArea+" ff-canvas-workarea"}>
+        {error&&<div style={{maxWidth:1280,margin:"0 auto 12px"}}><MessageBar intent="error"><MessageBarBody>{error}</MessageBarBody></MessageBar></div>}
+        {!ready?<div style={{padding:40,display:"flex",justifyContent:"center"}}><Spinner label={error?"Canvas unavailable":"Loading canvas…"}/></div>:
+          <div className={s.board+" ff-canvas-board"}><canvas ref={canvasRef} width={1200} height={800} className={s.canvas+" ff-canvas-surface"} onPointerDown={startDrawing} onPointerMove={continueDrawing} onPointerUp={stopDrawing} onPointerCancel={stopDrawing} aria-label="Drawing canvas" role="img"/></div>}
+      </main>
+      <footer className={s.footer+" ff-canvas-footer"}><PaintBrush24Regular/><Caption1>FluentFile Canvases · Saved locally in this browser</Caption1><span style={{flex:1}}/><Caption1>{elements.length} item{elements.length===1?"":"s"} · Ctrl/⌘+S saves · Ctrl/⌘+Z undo</Caption1></footer>
+    </div>
+  </FluentProvider>;
+}
+
 function App() {
   const s = useStyles();
   const [files,setFiles] = useState([]);
@@ -572,6 +860,7 @@ function App() {
   const [view,setView] = useState("files");
   const [folderId,setFolderId] = useState(null);
   const [documentId,setDocumentId] = useState(null);
+  const [canvasId,setCanvasId] = useState(null);
   const [query,setQuery] = useState("");
   const [sortBy,setSortBy] = useState("modified");
   const [fileFilter,setFileFilter] = useState("all");
@@ -623,24 +912,30 @@ function App() {
     if(!raw)return;
     const parts=raw.split("/").filter(Boolean).map(part=>{try{return decodeURIComponent(part);}catch{return part;}});
     try {
-      if((parts[0]==="file"||parts[0]==="doc")&&parts[1]){
+      if((parts[0]==="file"||parts[0]==="doc"||parts[0]==="canvas")&&parts[1]){
         const all=await getAll("files"),file=all.find(item=>item.id===parts[1]);
         if(!file){setView("files");setFolderId(null);setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");setDocumentId(null);toast("This file link isn't available in this browser's local storage.");return;}
         setFolderId(file.folderId||null);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");
         if(isDocument(file)){
           if(isDeleted(file)){setView("trash");setDocumentId(null);toast("This document is in the recycle bin. Restore it before editing.");return;}
-          setView("doc");setDocumentId(file.id);return;
+          if(parts[0]==="canvas"){setView("files");setDocumentId(null);toast("This link does not point to a canvas.");return;}
+          setView("doc");setDocumentId(file.id);setCanvasId(null);return;
         }
-        if(parts[0]==="doc"){setView("files");setDocumentId(null);toast("This link does not point to a FluentFile document.");return;}
-        setDocumentId(null);setView(isDeleted(file)?"trash":"files");await showPreview(file);return;
+        if(isCanvas(file)){
+          if(isDeleted(file)){setView("trash");setCanvasId(null);toast("This canvas is in the recycle bin. Restore it before editing.");return;}
+          if(parts[0]!=="canvas"){setView("files");setCanvasId(null);toast("Open this item from its canvas link.");return;}
+          setView("canvas");setCanvasId(file.id);setDocumentId(null);return;
+        }
+        if(parts[0]==="doc"||parts[0]==="canvas"){setView("files");setDocumentId(null);setCanvasId(null);toast("This link does not point to the expected item type.");return;}
+        setDocumentId(null);setCanvasId(null);setView(isDeleted(file)?"trash":"files");await showPreview(file);return;
       }
       if(parts[0]==="folder"&&parts[1]){
         const all=await getAll("folders"),folder=all.find(item=>item.id===parts[1]);
         if(!folder){setView("files");setFolderId(null);setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");toast("This folder link is no longer available in this browser.");return;}
         setView("files");setFolderId(folder.id);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");return;
       }
-      const next=["files","recent","favorites","trash","docs"].includes(parts[0])?parts[0]:"files";
-      setView(next);setDocumentId(null);setFolderId(null);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");
+      const next=["files","recent","favorites","trash","docs","canvases"].includes(parts[0])?parts[0]:"files";
+      setView(next);setDocumentId(null);setCanvasId(null);setFolderId(null);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");
     } catch(error) { setStorageError(error.message||"Could not open this link."); }
   };
   const setRoute = path => {
@@ -655,7 +950,7 @@ function App() {
     return ()=>window.removeEventListener("hashchange",onHashChange);
   },[]);
   const copyLink = async (type,item) => {
-    const path=type==="folder"?"folder/"+encodeURIComponent(item.id):type==="doc"?"doc/"+encodeURIComponent(item.id):"file/"+encodeURIComponent(item.id);
+    const path=type==="folder"?"folder/"+encodeURIComponent(item.id):type==="doc"?"doc/"+encodeURIComponent(item.id):type==="canvas"?"canvas/"+encodeURIComponent(item.id):"file/"+encodeURIComponent(item.id);
     const url=window.location.origin+window.location.pathname+"#/"+path;
     try {
       if(navigator.clipboard?.writeText) await navigator.clipboard.writeText(url);
@@ -702,6 +997,7 @@ function App() {
     if(view==="trash")return isDeleted(f);
     if(isDeleted(f))return false;
     if(view==="docs"&&!isDocument(f))return false;
+    if(view==="canvases"&&!isCanvas(f))return false;
     if(view==="favorites"&&!f.favorite)return false;
     if(view==="files"&&!q&&f.folderId!==folderId)return false;
     return true;
@@ -751,16 +1047,24 @@ function App() {
       await write("files",record);await refresh();setDocumentId(record.id);setRoute("doc/"+encodeURIComponent(record.id));
     } catch(error){toast("Could not create document. "+(error.message||"Check browser storage quota."));}
   };
+  const createCanvas = async () => {
+    try {
+      const content={version:1,width:1200,height:800,background:"#ffffff",elements:[]};
+      const blob=new Blob([JSON.stringify(content)],{type:CANVAS_MIME}),now=Date.now();
+      const record={id:uid(),name:"Untitled canvas",type:CANVAS_MIME,size:blob.size,modifiedAt:now,createdAt:now,folderId:view==="files"?folderId:null,blob,favorite:false,deletedAt:null};
+      await write("files",record);await refresh();setCanvasId(record.id);setRoute("canvas/"+encodeURIComponent(record.id));
+    } catch(error){toast("Could not create canvas. "+(error.message||"Check browser storage quota."));}
+  };
   const download = async file => {
     try{
       const blob=isDocument(file)?new Blob([fullDocumentHtml(file.name,await file.blob.text())],{type:"text/html;charset=utf-8"}):file.blob;
       const url=URL.createObjectURL(blob),a=document.createElement("a");
-      a.href=url;a.download=isDocument(file)?(file.name.toLowerCase().endsWith(".html")?file.name:file.name+".html"):file.name;
+      a.href=url;a.download=isDocument(file)?(file.name.toLowerCase().endsWith(".html")?file.name:file.name+".html"):isCanvas(file)?(file.name.replace(/[\\/:*?"<>|]/g,"_")+".canvas.json"):file.name;
       document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1200);
     }catch(error){toast("Could not download file. "+(error.message||"Try again."));}
   };
   const preview = async file => {
-    const next="#/"+(isDocument(file)?"doc/":"file/")+encodeURIComponent(file.id);
+    const next="#/"+(isDocument(file)?"doc/":isCanvas(file)?"canvas/":"file/")+encodeURIComponent(file.id);
     if(window.location.hash===next) await syncRoute();
     else window.location.hash=next;
   };
@@ -867,6 +1171,7 @@ function App() {
   };
   const fileCard = f => <FileCard key={f.id} file={f} layout={layout} styles={s} onAction={action} onPreview={preview} onCopyLink={copyLink} selected={selectedIds.includes(f.id)} onSelect={toggleSelected}/>;
   if(view==="doc") return <FluentDocEditor key={documentId} fileId={documentId} dark={dark} onBack={parentId=>setRoute(parentId?"folder/"+encodeURIComponent(parentId):"files")} onCopyLink={copyLink} onSaved={refresh}/>;
+  if(view==="canvas") return <FluentCanvasEditor key={canvasId} fileId={canvasId} dark={dark} onBack={parentId=>setRoute(parentId?"folder/"+encodeURIComponent(parentId):"canvases")} onCopyLink={copyLink} onSaved={refresh}/>;
   const bulkAction = async mode => {
     const targets=selectedFiles;
     if(!targets.length)return;
@@ -902,8 +1207,8 @@ function App() {
     const blocked=dialog==="move-folder"&&dialogTarget?folderDescendants(dialogTarget.id):new Set();
     return folders.filter(folder=>!blocked.has(folder.id));
   })();
-  const title = view==="trash"?"Recycle bin":view==="favorites"?"Favorites":view==="recent"?"Recent":view==="docs"?"FluentFile Docs":folderLabel(folderId);
-  const subtitle = view==="trash"?"Restore deleted files or permanently remove them.":view==="favorites"?"Your starred files in one place.":view==="recent"?"Your most recently changed files.":view==="docs"?"Create, edit, and organize your documents alongside your files.":"Organize files and folders stored in this browser.";
+  const title = view==="trash"?"Recycle bin":view==="favorites"?"Favorites":view==="recent"?"Recent":view==="docs"?"FluentFile Docs":view==="canvases"?"FluentFile Canvases":folderLabel(folderId);
+  const subtitle = view==="trash"?"Restore deleted files or permanently remove them.":view==="favorites"?"Your starred files in one place.":view==="recent"?"Your most recently changed files.":view==="docs"?"Create, edit, and organize your documents alongside your files.":view==="canvases"?"Draw, sketch, and export artwork from your browser.":"Organize files and folders stored in this browser.";
 
   return <FluentProvider theme={dark?webDarkTheme:webLightTheme}>
     <div className={s.app+" ff-app"}>
@@ -916,6 +1221,7 @@ function App() {
           <Button className={s.navButton+" ff-nav-button "+(view==="files"?s.navActive:"")} appearance="subtle" icon={<Home24Regular/>} onClick={()=>goView("files")}><span className="ff-nav-text">My files</span></Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="recent"?s.navActive:"")} appearance="subtle" icon={<Clock24Regular/>} onClick={()=>goView("recent")}><span className="ff-nav-text">Recent</span></Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="docs"?s.navActive:"")} appearance="subtle" icon={<Document24Regular/>} onClick={()=>goView("docs")}><span className="ff-nav-text">Docs</span></Button>
+          <Button className={s.navButton+" ff-nav-button "+(view==="canvases"?s.navActive:"")} appearance="subtle" icon={<PaintBrush24Regular/>} onClick={()=>goView("canvases")}><span className="ff-nav-text">Canvases</span></Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="favorites"?s.navActive:"")} appearance="subtle" icon={<Star24Regular/>} onClick={()=>goView("favorites")}><span className="ff-nav-text">Favorites</span>{favCount>0&&<Badge size="small">{favCount}</Badge>}</Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="trash"?s.navActive:"")} appearance="subtle" icon={<Delete24Regular/>} onClick={()=>goView("trash")}><span className="ff-nav-text">Recycle bin</span>{trashFiles.length>0&&<Badge size="small">{trashFiles.length}</Badge>}</Button>
         </nav></section>
@@ -940,8 +1246,9 @@ function App() {
           {storageError&&<MessageBar intent="error"><MessageBarBody><strong>Browser storage is unavailable. </strong>{storageError} Check your browser's site storage settings and reload.</MessageBarBody></MessageBar>}
           <div className={s.pageHead}>
             <div className={s.titleBlock}><Caption1>WORKSPACE / {view==="files"?"MY FILES":view.toUpperCase()}</Caption1><Title2>{title}</Title2><Body1>{subtitle}</Body1></div>
-            {(view==="files"||view==="docs")&&<div className={s.actions}>
-              <Button appearance="secondary" icon={<Document24Regular/>} onClick={createDocument}>New document</Button>
+            {(view==="files"||view==="docs"||view==="canvases")&&<div className={s.actions}>
+              {(view==="files"||view==="docs")&&<Button appearance="secondary" icon={<Document24Regular/>} onClick={createDocument}>New document</Button>}
+              {(view==="files"||view==="canvases")&&<Button appearance="secondary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>New canvas</Button>}
               {view==="files"&&<><Button appearance="secondary" icon={<FolderAdd24Regular/>} onClick={()=>openEditor("new-folder")}>New folder</Button><Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>inputRef.current?.click()}>Upload files</Button><input ref={inputRef} type="file" multiple hidden onChange={e=>{addFiles(e.target.files);e.target.value="";}}/></>}
             </div>}
           </div>
@@ -977,11 +1284,12 @@ function App() {
               </Card>)}</div></section>}
               {shownFiles.length>0&&<section className={s.section}><Title3 className={s.sectionTitle}>{view==="trash"?"Deleted files":shownFolders.length?"Files":"All files"}</Title3><div className={(layout==="list"?s.fileGrid+" "+s.fileGridList:s.fileGrid)+" ff-file-grid"}>{shownFiles.map(fileCard)}</div></section>}
             </div>
-            {!shownFolders.length&&!shownFiles.length&&<div className={s.empty}><div className={s.emptyMark}>{view==="trash"?<Delete24Regular fontSize={30}/>:view==="favorites"?<Star24Regular fontSize={30}/>:<FolderOpen24Regular fontSize={30}/>}</div>
-              <Title3>{query?"No matches found":view==="trash"?"Recycle bin is empty":view==="favorites"?"No favorites yet":view==="recent"?"No recent files":view==="docs"?"No documents yet":"Start with your first file"}</Title3>
-              <Body1>{query?"Try another search or clear the search box.":view==="trash"?"Deleted files appear here so you can restore them.":view==="favorites"?"Use the star action on a file to keep it here.":view==="recent"?"Recently changed files will appear here.":view==="docs"?"Create your first document in FluentFile Docs.":"Upload files from your device or create a folder to stay organized."}</Body1>
+            {!shownFolders.length&&!shownFiles.length&&<div className={s.empty}><div className={s.emptyMark}>{view==="trash"?<Delete24Regular fontSize={30}/>:view==="favorites"?<Star24Regular fontSize={30/>:view==="canvases"?<PaintBrush24Regular fontSize={30}/>:<FolderOpen24Regular fontSize={30}/>}</div>
+              <Title3>{query?"No matches found":view==="trash"?"Recycle bin is empty":view==="favorites"?"No favorites yet":view==="recent"?"No recent files":view==="docs"?"No documents yet":view==="canvases"?"No canvases yet":"Start with your first file"}</Title3>
+              <Body1>{query?"Try another search or clear the search box.":view==="trash"?"Deleted files appear here so you can restore them.":view==="favorites"?"Use the star action on a file to keep it here.":view==="recent"?"Recently changed files will appear here.":view==="docs"?"Create your first document in FluentFile Docs.":view==="canvases"?"Create a blank canvas and start drawing, sketching, or planning.":"Upload files from your device or create a folder to stay organized."}</Body1>
               {view==="docs"&&!query&&<Button appearance="primary" icon={<Document24Regular/>} onClick={createDocument}>Create document</Button>}
-              {view==="files"&&!query&&<div className={s.actions}><Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>inputRef.current?.click()}>Upload files</Button><Button appearance="secondary" icon={<FolderAdd24Regular/>} onClick={()=>openEditor("new-folder")}>Create folder</Button><Button appearance="secondary" icon={<Document24Regular/>} onClick={createDocument}>Create document</Button></div>}
+              {view==="canvases"&&!query&&<Button appearance="primary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>Create canvas</Button>}
+              {view==="files"&&!query&&<div className={s.actions}><Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>inputRef.current?.click()}>Upload files</Button><Button appearance="secondary" icon={<FolderAdd24Regular/>} onClick={()=>openEditor("new-folder")}>Create folder</Button><Button appearance="secondary" icon={<Document24Regular/>} onClick={createDocument}>Create document</Button><Button appearance="secondary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>Create canvas</Button></div>}
               {query&&<Button appearance="secondary" onClick={()=>setQuery("")}>Clear search</Button>}
             </div>}
           </>}

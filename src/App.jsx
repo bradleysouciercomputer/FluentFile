@@ -267,7 +267,7 @@ function FileCard({file,layout,styles,onAction,onPreview,onCopyLink,selected,onS
         <Menu><MenuTrigger disableButtonEnhancement><Button appearance="subtle" icon={<MoreHorizontal24Regular/>} aria-label={"More options for "+file.name}/></MenuTrigger>
           <MenuPopover><MenuList>
             <MenuItem icon={<Open24Regular/>} onClick={() => onPreview(file)}>Preview</MenuItem>
-            <MenuItem onClick={() => onCopyLink(isDocument(file)?"doc":"file",file)}>{isDocument(file)?"Copy document link":"Copy file link"}</MenuItem>
+            <MenuItem onClick={() => onCopyLink(isDocument(file)?"doc":isCanvas(file)?"canvas":"file",file)}>{isDocument(file)?"Copy document link":isCanvas(file)?"Copy canvas link":"Copy file link"}</MenuItem>
             <MenuItem icon={<Document24Regular/>} onClick={() => onAction("duplicate",file)}>Make a copy</MenuItem>
             <MenuItem icon={<Rename24Regular/>} onClick={() => onAction("rename",file)}>Rename</MenuItem>
             <MenuItem icon={<Delete24Regular/>} onClick={() => onAction("trash",file)}>Move to recycle bin</MenuItem>
@@ -530,16 +530,16 @@ function FluentDocEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
         <Divider vertical/>
         <Tooltip content="Bulleted list" relationship="label"><Button size="small" appearance={editor?.isActive("bulletList")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleBulletList())}>• List</Button></Tooltip>
         <Tooltip content="Numbered list" relationship="label"><Button size="small" appearance={editor?.isActive("orderedList")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleOrderedList())}>1. List</Button></Tooltip>
-        <Tooltip content="Checklist" relationship="label"><Button size="small" appearance={editor?.isActive("taskList")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleTaskList())}>☑ Tasks</Button></Tooltip>
+        <Tooltip content="Checklist" relationship="label"><Button size="small" appearance={editor?.isActive("taskList")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleTaskList())}>☑ Tasks <Badge size="small" color="informative">NEW</Badge></Button></Tooltip>
         <Tooltip content="Block quote" relationship="label"><Button size="small" appearance={editor?.isActive("blockquote")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleBlockquote())}>Quote</Button></Tooltip>
         <Tooltip content="Code block" relationship="label"><Button size="small" appearance={editor?.isActive("codeBlock")?"primary":"subtle"} onClick={()=>run(chain=>chain.toggleCodeBlock())}>Code</Button></Tooltip>
         <Divider vertical/>
         <Tooltip content="Insert or edit link" relationship="label"><Button size="small" appearance={editor?.isActive("link")?"primary":"subtle"} onClick={addLink}>Link</Button></Tooltip>
         <Tooltip content="Insert a divider" relationship="label"><Button size="small" appearance="subtle" onClick={()=>run(chain=>chain.setHorizontalRule())}>Divider</Button></Tooltip>
-        <Menu><MenuTrigger disableButtonEnhancement><Button size="small" appearance="subtle">Insert date/time</Button></MenuTrigger><MenuPopover><MenuList><MenuItem onClick={()=>insertCurrentStamp("date")}>Insert today’s date</MenuItem><MenuItem onClick={()=>insertCurrentStamp("time")}>Insert current time</MenuItem></MenuList></MenuPopover></Menu>
+        <Menu><MenuTrigger disableButtonEnhancement><Button size="small" appearance="subtle">Insert date/time <Badge size="small" color="informative">NEW</Badge></Button></MenuTrigger><MenuPopover><MenuList><MenuItem onClick={()=>insertCurrentStamp("date")}>Insert today’s date</MenuItem><MenuItem onClick={()=>insertCurrentStamp("time")}>Insert current time</MenuItem></MenuList></MenuPopover></Menu>
         <Tooltip content="Remove formatting" relationship="label"><Button size="small" appearance="subtle" onClick={()=>run(chain=>chain.unsetAllMarks().clearNodes())}>Clear format</Button></Tooltip>
         <span style={{flex:1}}/>
-        <Button size="small" appearance={outlineOpen?"primary":"subtle"} onClick={()=>setOutlineOpen(open=>!open)}>Outline</Button>
+        <Button size="small" appearance={outlineOpen?"primary":"subtle"} onClick={()=>setOutlineOpen(open=>!open)}>Outline <Badge size="small" color="informative">NEW</Badge></Button>
         <Button size="small" appearance={findOpen?"primary":"subtle"} onClick={()=>{setFindOpen(open=>!open);setFindMessage("");}}>Find &amp; replace</Button>
         <Button size="small" appearance="subtle" onClick={()=>run(chain=>chain.undo())} disabled={!editor?.can().undo()}>Undo</Button>
         <Button size="small" appearance="subtle" onClick={()=>run(chain=>chain.redo())} disabled={!editor?.can().redo()}>Redo</Button>
@@ -578,6 +578,47 @@ function drawFluentCanvas(canvas, model, showGrid = false) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = model.background || "#ffffff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Artwork lives on a transparent layer so erasing removes marks without
+  // cutting transparent holes through the paper color.
+  const layer = document.createElement("canvas");
+  layer.width = canvas.width;
+  layer.height = canvas.height;
+  const drawing = layer.getContext("2d");
+  if (!drawing) return;
+  (model.elements || []).forEach(element => {
+    const points = element.points || [];
+    drawing.save();
+    drawing.globalCompositeOperation = element.type === "erase" ? "destination-out" : "source-over";
+    drawing.strokeStyle = element.color || "#1f2937";
+    drawing.fillStyle = element.color || "#1f2937";
+    drawing.lineWidth = Math.max(1, element.size || 4);
+    drawing.lineCap = "round";
+    drawing.lineJoin = "round";
+    if ((element.type === "path" || element.type === "erase") && points.length) {
+      drawing.beginPath(); drawing.moveTo(points[0].x, points[0].y);
+      points.slice(1).forEach(point => drawing.lineTo(point.x, point.y));
+      if (points.length === 1) drawing.lineTo(points[0].x + 0.1, points[0].y + 0.1);
+      drawing.stroke();
+    } else if (points.length >= 2 && element.type === "line") {
+      drawing.beginPath(); drawing.moveTo(points[0].x, points[0].y); drawing.lineTo(points[1].x, points[1].y); drawing.stroke();
+    } else if (points.length >= 2 && element.type === "rect") {
+      const left = Math.min(points[0].x, points[1].x), top = Math.min(points[0].y, points[1].y);
+      drawing.strokeRect(left, top, Math.abs(points[1].x - points[0].x), Math.abs(points[1].y - points[0].y));
+    } else if (points.length >= 2 && element.type === "ellipse") {
+      const cx = (points[0].x + points[1].x) / 2, cy = (points[0].y + points[1].y) / 2;
+      drawing.beginPath(); drawing.ellipse(cx, cy, Math.abs(points[1].x - points[0].x) / 2, Math.abs(points[1].y - points[0].y) / 2, 0, 0, Math.PI * 2); drawing.stroke();
+    } else if (element.type === "text" && element.text) {
+      drawing.font = (element.size || 28) + "px Segoe UI, Arial, sans-serif";
+      drawing.textBaseline = "top";
+      drawing.globalCompositeOperation = "source-over";
+      drawing.fillText(element.text, element.x || 0, element.y || 0, Math.max(1, width - (element.x || 0) - 12));
+    }
+    drawing.restore();
+  });
+  ctx.drawImage(layer, 0, 0);
+
+  // Draw the grid last so erasing never removes grid lines.
   if (showGrid) {
     ctx.save();
     ctx.strokeStyle = "rgba(100,116,139,.18)";
@@ -586,34 +627,6 @@ function drawFluentCanvas(canvas, model, showGrid = false) {
     for (let y = 40; y < height; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(width, y); ctx.stroke(); }
     ctx.restore();
   }
-  (model.elements || []).forEach(element => {
-    const points = element.points || [];
-    ctx.save();
-    ctx.strokeStyle = element.color || "#1f2937";
-    ctx.fillStyle = element.color || "#1f2937";
-    ctx.lineWidth = Math.max(1, element.size || 4);
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    if (element.type === "path" && points.length) {
-      ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y);
-      points.slice(1).forEach(point => ctx.lineTo(point.x, point.y));
-      if (points.length === 1) { ctx.lineTo(points[0].x + 0.1, points[0].y + 0.1); }
-      ctx.stroke();
-    } else if (points.length >= 2 && element.type === "line") {
-      ctx.beginPath(); ctx.moveTo(points[0].x, points[0].y); ctx.lineTo(points[1].x, points[1].y); ctx.stroke();
-    } else if (points.length >= 2 && element.type === "rect") {
-      const left = Math.min(points[0].x, points[1].x), top = Math.min(points[0].y, points[1].y);
-      ctx.strokeRect(left, top, Math.abs(points[1].x - points[0].x), Math.abs(points[1].y - points[0].y));
-    } else if (points.length >= 2 && element.type === "ellipse") {
-      const cx = (points[0].x + points[1].x) / 2, cy = (points[0].y + points[1].y) / 2;
-      ctx.beginPath(); ctx.ellipse(cx, cy, Math.abs(points[1].x - points[0].x) / 2, Math.abs(points[1].y - points[0].y) / 2, 0, 0, Math.PI * 2); ctx.stroke();
-    } else if (element.type === "text" && element.text) {
-      ctx.font = (element.size || 28) + "px Segoe UI, Arial, sans-serif";
-      ctx.textBaseline = "top";
-      ctx.fillText(element.text, element.x || 0, element.y || 0, Math.max(1, width - (element.x || 0) - 12));
-    }
-    ctx.restore();
-  });
 }
 function FluentCanvasEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
   const canvasStyles = makeStyles({
@@ -765,8 +778,8 @@ function FluentCanvasEditor({fileId, dark, onBack, onCopyLink, onSaved}) {
     }
     remember();
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    const shapeType=tool==="line"||tool==="rect"||tool==="ellipse"?tool:"path";
-    const element={type:shapeType,color:tool==="eraser"?backgroundRef.current:color,size:tool==="eraser"?Math.max(12,brushSize*4):brushSize,points:[point]};
+    const shapeType=tool==="eraser"?"erase":tool==="line"||tool==="rect"||tool==="ellipse"?tool:"path";
+    const element={type:shapeType,color,size:tool==="eraser"?Math.max(12,brushSize*4):brushSize,points:[point]};
     const next=[...elementsRef.current,element];
     elementsRef.current=next;drawingIndex.current=next.length-1;setElements(next);modelRef.current={version:1,width:1200,height:800,background:backgroundRef.current,elements:next};markDirty();
   };
@@ -1220,8 +1233,8 @@ function App() {
         <section><Text className={s.navLabel+" ff-nav-label"}>Workspace</Text><nav className={s.nav+" ff-nav"}>
           <Button className={s.navButton+" ff-nav-button "+(view==="files"?s.navActive:"")} appearance="subtle" icon={<Home24Regular/>} onClick={()=>goView("files")}><span className="ff-nav-text">My files</span></Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="recent"?s.navActive:"")} appearance="subtle" icon={<Clock24Regular/>} onClick={()=>goView("recent")}><span className="ff-nav-text">Recent</span></Button>
-          <Button className={s.navButton+" ff-nav-button "+(view==="docs"?s.navActive:"")} appearance="subtle" icon={<Document24Regular/>} onClick={()=>goView("docs")}><span className="ff-nav-text">Docs</span></Button>
-          <Button className={s.navButton+" ff-nav-button "+(view==="canvases"?s.navActive:"")} appearance="subtle" icon={<PaintBrush24Regular/>} onClick={()=>goView("canvases")}><span className="ff-nav-text">Canvases</span></Button>
+          <Button className={s.navButton+" ff-nav-button ff-new-service "+(view==="docs"?s.navActive:"")} appearance="subtle" icon={<Document24Regular/>} onClick={()=>goView("docs")}><span className="ff-nav-text">Docs</span><Badge size="small" color="informative" className="ff-new-service-badge">NEW</Badge></Button>
+          <Button className={s.navButton+" ff-nav-button ff-new-service "+(view==="canvases"?s.navActive:"")} appearance="subtle" icon={<PaintBrush24Regular/>} onClick={()=>goView("canvases")}><span className="ff-nav-text">Canvases</span><Badge size="small" color="informative" className="ff-new-service-badge">NEW</Badge></Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="favorites"?s.navActive:"")} appearance="subtle" icon={<Star24Regular/>} onClick={()=>goView("favorites")}><span className="ff-nav-text">Favorites</span>{favCount>0&&<Badge size="small">{favCount}</Badge>}</Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="trash"?s.navActive:"")} appearance="subtle" icon={<Delete24Regular/>} onClick={()=>goView("trash")}><span className="ff-nav-text">Recycle bin</span>{trashFiles.length>0&&<Badge size="small">{trashFiles.length}</Badge>}</Button>
         </nav></section>
@@ -1245,7 +1258,7 @@ function App() {
         <div className={s.page+" ff-page"}>
           {storageError&&<MessageBar intent="error"><MessageBarBody><strong>Browser storage is unavailable. </strong>{storageError} Check your browser's site storage settings and reload.</MessageBarBody></MessageBar>}
           <div className={s.pageHead}>
-            <div className={s.titleBlock}><Caption1>WORKSPACE / {view==="files"?"MY FILES":view.toUpperCase()}</Caption1><Title2>{title}</Title2><Body1>{subtitle}</Body1></div>
+            <div className={s.titleBlock}><Caption1>WORKSPACE / {view==="files"?"MY FILES":view.toUpperCase()}</Caption1><div className="ff-workspace-title-row"><Title2>{title}</Title2>{(view==="docs"||view==="canvases")&&<Badge size="small" color="informative">NEW</Badge>}</div><Body1>{subtitle}</Body1></div>
             {(view==="files"||view==="docs"||view==="canvases")&&<div className={s.actions}>
               {(view==="files"||view==="docs")&&<Button appearance="secondary" icon={<Document24Regular/>} onClick={createDocument}>New document</Button>}
               {(view==="files"||view==="canvases")&&<Button appearance="secondary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>New canvas</Button>}

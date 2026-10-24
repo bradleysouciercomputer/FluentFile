@@ -1233,11 +1233,11 @@ function App() {
           <div className={s.brandMark}><FolderOpen24Regular fontSize={24}/></div>
           <div className="ff-brand-text"><Text weight="semibold" size={500}>FluentFile</Text><div><Caption1>Personal file space</Caption1></div></div>
         </div>
-        <section><Text className={s.navLabel+" ff-nav-label"}>Workspace</Text><nav className={s.nav+" ff-nav"}>
+        <section className="ff-nav-section"><Text className={s.navLabel+" ff-nav-label"}>Workspace</Text><nav className={s.nav+" ff-nav"}>
           <Button className={s.navButton+" ff-nav-button "+(view==="files"?s.navActive:"")} appearance="subtle" icon={<Home24Regular/>} onClick={()=>goView("files")}><span className="ff-nav-text">My files</span></Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="recent"?s.navActive:"")} appearance="subtle" icon={<Clock24Regular/>} onClick={()=>goView("recent")}><span className="ff-nav-text">Recent</span></Button>
-          <Button className={s.navButton+" ff-nav-button ff-new-service "+(view==="docs"?s.navActive:"")} appearance="subtle" icon={<Document24Regular/>} onClick={()=>goView("docs")}><span className="ff-nav-text">Docs</span><Badge size="small" color="informative" className="ff-new-service-badge">NEW</Badge></Button>
-          <Button className={s.navButton+" ff-nav-button ff-new-service "+(view==="canvases"?s.navActive:"")} appearance="subtle" icon={<PaintBrush24Regular/>} onClick={()=>goView("canvases")}><span className="ff-nav-text">Canvases</span><Badge size="small" color="informative" className="ff-new-service-badge">NEW</Badge></Button>
+          <Button className={s.navButton+" ff-nav-button ff-new-service "+(view==="docs"?s.navActive:"")} appearance="subtle" icon={<Document24Regular/>} onClick={()=>goView("docs")}><span className="ff-nav-text">Docs</span><span aria-hidden="true" className="ff-new-service-badge">NEW</span></Button>
+          <Button className={s.navButton+" ff-nav-button ff-new-service "+(view==="canvases"?s.navActive:"")} appearance="subtle" icon={<PaintBrush24Regular/>} onClick={()=>goView("canvases")}><span className="ff-nav-text">Canvases</span><span aria-hidden="true" className="ff-new-service-badge">NEW</span></Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="favorites"?s.navActive:"")} appearance="subtle" icon={<Star24Regular/>} onClick={()=>goView("favorites")}><span className="ff-nav-text">Favorites</span>{favCount>0&&<Badge size="small">{favCount}</Badge>}</Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="trash"?s.navActive:"")} appearance="subtle" icon={<Delete24Regular/>} onClick={()=>goView("trash")}><span className="ff-nav-text">Recycle bin</span>{trashFiles.length>0&&<Badge size="small">{trashFiles.length}</Badge>}</Button>
         </nav></section>

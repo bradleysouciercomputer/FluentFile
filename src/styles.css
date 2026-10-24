@@ -36,3 +36,17 @@ html,body,#root{min-height:100%;margin:0}body{font-family:"Segoe UI",-apple-syst
   .ff-doc-editor-content .tiptap { min-height:0!important; padding:0!important; color:#000!important; overflow:visible!important; }
   .ff-doc-editor-content .tiptap a { color:#000!important; }
 }
+/* FluentFile Docs checklist and outline enhancements */
+.ff-doc-editor-content .tiptap ul[data-type="taskList"] { list-style:none; padding-left:0; }
+.ff-doc-editor-content .tiptap li[data-type="taskItem"] { display:flex; align-items:flex-start; gap:8px; margin:.35em 0; }
+.ff-doc-editor-content .tiptap li[data-type="taskItem"] > label { flex:0 0 auto; display:inline-flex; align-items:center; margin-top:.25em; user-select:none; }
+.ff-doc-editor-content .tiptap li[data-type="taskItem"] > label input[type="checkbox"] { width:16px; height:16px; margin:0; accent-color:var(--colorBrandForeground1, #0f6cbd); cursor:pointer; }
+.ff-doc-editor-content .tiptap li[data-type="taskItem"] > div { flex:1; min-width:0; }
+.ff-doc-editor-content .tiptap li[data-type="taskItem"][data-checked="true"] > div { color:var(--colorNeutralForeground3, #616161); }
+.ff-doc-editor-content .tiptap li[data-type="taskItem"][data-checked="true"] > div p { text-decoration:line-through; }
+.ff-doc-outline-panel { max-height:180px; overflow-y:auto; }
+.ff-doc-outline-panel button { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+@media print {
+  .ff-doc-editor-content .tiptap ul[data-type="taskList"] { padding-left:0!important; }
+  .ff-doc-editor-content .tiptap li[data-type="taskItem"] > label input[type="checkbox"] { appearance:auto; print-color-adjust:exact; }
+}

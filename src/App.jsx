@@ -1209,6 +1209,59 @@ function FluentSlidesEditor({fileId,dark,onBack,onCopyLink,onSaved}) {
   </FluentProvider>;
 }
 
+function FluentPhotoTile({file, onOpen, onFavorite}) {
+  const [src,setSrc]=useState("");
+  useEffect(()=>{
+    if(!file?.blob)return;
+    const url=URL.createObjectURL(file.blob);setSrc(url);
+    return ()=>URL.revokeObjectURL(url);
+  },[file?.blob]);
+  return <article className="ff-photo-tile">
+    <button type="button" className="ff-photo-thumb" onClick={()=>onOpen(file)} aria-label={"Open photo "+file.name}>
+      {src?<img src={src} alt={file.name} loading="lazy"/>:<span className="ff-photo-thumb-placeholder"><Image24Regular/></span>}
+      <span className="ff-photo-open-hint">View photo</span>
+    </button>
+    <div className="ff-photo-tile-meta">
+      <div className="ff-photo-name-wrap"><strong title={file.name}>{file.name}</strong><span>{date(file.modifiedAt||file.createdAt||Date.now())} · {size(file.size)}</span></div>
+      <Button size="small" appearance={file.favorite?"primary":"subtle"} icon={<Star24Regular/>} aria-label={file.favorite?"Remove from favorites":"Add to favorites"} title={file.favorite?"Remove from favorites":"Add to favorites"} onClick={()=>onFavorite(file)}/>
+    </div>
+  </article>;
+}
+
+function FluentPhotoViewer({file,index,count,onClose,onPrevious,onNext,onFavorite,onDownload,onTrash}) {
+  const [src,setSrc]=useState("");
+  useEffect(()=>{
+    if(!file?.blob)return;
+    const url=URL.createObjectURL(file.blob);setSrc(url);
+    return ()=>URL.revokeObjectURL(url);
+  },[file?.blob]);
+  useEffect(()=>{
+    const previous=document.body.style.overflow;
+    document.body.style.overflow="hidden";
+    return ()=>{document.body.style.overflow=previous;};
+  },[]);
+  if(!file)return null;
+  return <div className="ff-photo-viewer" role="dialog" aria-modal="true" aria-label={"Photo viewer: "+file.name} onMouseDown={event=>{if(event.target===event.currentTarget)onClose();}}>
+    <header className="ff-photo-viewer-header">
+      <div className="ff-photo-viewer-file"><Image24Regular/><div><strong>{file.name}</strong><span>{index+1} of {count}</span></div></div>
+      <div className="ff-photo-viewer-actions">
+        <Button appearance="secondary" icon={<Star24Regular/>} onClick={()=>onFavorite(file)}>{file.favorite?"Unfavorite":"Favorite"}</Button>
+        <Button appearance="secondary" icon={<ArrowDownload24Regular/>} onClick={()=>onDownload(file)}>Download</Button>
+        <Button appearance="secondary" icon={<Delete24Regular/>} onClick={()=>onTrash(file)}>Move to recycle bin</Button>
+        <Button appearance="subtle" icon={<Dismiss24Regular/>} aria-label="Close photo viewer" onClick={onClose}>Close</Button>
+      </div>
+    </header>
+    <main className="ff-photo-viewer-stage">
+      <Button className="ff-photo-viewer-nav ff-photo-viewer-prev" appearance="secondary" disabled={count<2} aria-label="Previous photo" onClick={onPrevious}>‹</Button>
+      {src?<img src={src} alt={file.name}/>:<Spinner label="Loading photo…"/>}
+      <Button className="ff-photo-viewer-nav ff-photo-viewer-next" appearance="secondary" disabled={count<2} aria-label="Next photo" onClick={onNext}>›</Button>
+    </main>
+    <footer className="ff-photo-viewer-footer">
+      <span>{date(file.modifiedAt||file.createdAt||Date.now())}</span><span>{size(file.size)}</span><span>{file.type||"Image"}</span><span className="ff-photo-viewer-shortcuts">Use ← / → to navigate · Esc to close</span>
+    </footer>
+  </div>;
+}
+
 function App() {
   const s = useStyles();
   const [files,setFiles] = useState([]);
@@ -1236,7 +1289,9 @@ function App() {
   const [previewUrl,setPreviewUrl] = useState("");
   const [previewText,setPreviewText] = useState("");
   const [notice,setNotice] = useState("");
+  const [photoViewerId,setPhotoViewerId] = useState(null);
   const inputRef = useRef(null);
+  const photoInputRef = useRef(null);
   const restoreRef = useRef(null);
   const searchRef = useRef(null);
   const toastTimer = useRef(null);
@@ -1296,7 +1351,7 @@ function App() {
         if(!folder){setView("files");setFolderId(null);setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");toast("This folder link is no longer available in this browser.");return;}
         setView("files");setFolderId(folder.id);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");return;
       }
-      const next=["files","recent","favorites","trash","docs","canvases","slides"].includes(parts[0])?parts[0]:"files";
+      const next=["files","recent","favorites","trash","docs","canvases","slides","photos"].includes(parts[0])?parts[0]:"files";
       setView(next);setFileFilter("all");setDocumentId(null);setCanvasId(null);setSlidesId(null);setFolderId(null);setQuery("");setDialog(null);setPreviewFile(null);setPreviewUrl("");setPreviewText("");
     } catch(error) { setStorageError(error.message||"Could not open this link."); }
   };
@@ -1332,6 +1387,19 @@ function App() {
     window.addEventListener("keydown",onKeyDown);
     return ()=>window.removeEventListener("keydown",onKeyDown);
   },[view]);
+  useEffect(()=>{
+    if(view!=="photos"||!photoViewerId)return;
+    const onPhotoKey=event=>{
+      const target=event.target;
+      const editingText=target instanceof HTMLElement&&(target.isContentEditable||/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+      if(editingText)return;
+      if(event.key==="Escape"){event.preventDefault();setPhotoViewerId(null);}
+      if(event.key==="ArrowLeft"){event.preventDefault();movePhotoViewer(-1);}
+      if(event.key==="ArrowRight"){event.preventDefault();movePhotoViewer(1);}
+    };
+    window.addEventListener("keydown",onPhotoKey);
+    return ()=>window.removeEventListener("keydown",onPhotoKey);
+  },[view,photoViewerId,files,query,sortBy]);
   const getFolder = id => folders.find(f=>f.id===id)||null;
   const folderLabel = id => getFolder(id)?.name || "My files";
   const folderPathLabel = id => {
@@ -1361,6 +1429,7 @@ function App() {
     if(view==="docs"&&!isDocument(f))return false;
     if(view==="canvases"&&!isCanvas(f))return false;
     if(view==="slides"&&!isSlides(f))return false;
+    if(view==="photos"&&kind(f)!=="image")return false;
     if(view==="favorites"&&!f.favorite)return false;
     if(view==="files"&&!q&&f.folderId!==folderId)return false;
     return true;
@@ -1402,6 +1471,29 @@ function App() {
       for(const file of incoming)await write("files",{id:uid(),name:file.name,type:file.type||mimeFor(file.name),size:file.size,modifiedAt:file.lastModified||Date.now(),createdAt:Date.now(),folderId,blob:file,favorite:false,deletedAt:null});
       await refresh();toast("Saved "+incoming.length+" file"+(incoming.length===1?"":"s")+" to this browser.");
     } catch(e){toast("Could not save files. "+(e.message||"Check browser storage quota."));await refresh();}
+  };
+  const addPhotos = async list => {
+    const incoming=Array.from(list||[]).filter(file=>kind({name:file.name,type:file.type})==="image");
+    if(!incoming.length){toast("Choose image files to add to FluentFile Photos.");return;}
+    try {
+      for(const file of incoming){
+        await write("files",{id:uid(),name:file.name,type:file.type||mimeFor(file.name),size:file.size,modifiedAt:file.lastModified||Date.now(),createdAt:Date.now(),folderId:null,blob:file,favorite:false,deletedAt:null});
+      }
+      await refresh();
+      setQuery("");setSortBy("modified");setFileFilter("all");
+      toast("Added "+incoming.length+" photo"+(incoming.length===1?"":"s")+" to this browser.");
+    } catch(error) {
+      toast("Could not add photos. "+(error.message||"Check browser storage quota."));
+      await refresh();
+    }
+  };
+  const openPhoto = file => setPhotoViewerId(file.id);
+  const closePhoto = () => setPhotoViewerId(null);
+  const movePhotoViewer = direction => {
+    const index=shownFiles.findIndex(file=>file.id===photoViewerId);
+    if(index<0||shownFiles.length<2)return;
+    const nextIndex=(index+direction+shownFiles.length)%shownFiles.length;
+    setPhotoViewerId(shownFiles[nextIndex].id);
   };
   const createDocument = async () => {
     try {
@@ -1578,8 +1670,8 @@ function App() {
     const blocked=dialog==="move-folder"&&dialogTarget?folderDescendants(dialogTarget.id):new Set();
     return folders.filter(folder=>!blocked.has(folder.id));
   })();
-  const title = view==="trash"?"Recycle bin":view==="favorites"?"Favorites":view==="recent"?"Recent":view==="docs"?"FluentFile Docs":view==="canvases"?"FluentFile Canvases":view==="slides"?"FluentFile Slides":folderLabel(folderId);
-  const subtitle = view==="trash"?"Restore deleted files or permanently remove them.":view==="favorites"?"Your starred files in one place.":view==="recent"?"Your most recently changed files.":view==="docs"?"Create, edit, and organize your documents alongside your files.":view==="canvases"?"Draw, sketch, and export artwork from your browser.":view==="slides"?"Build, present, and export slide decks from your browser.":"Organize files and folders stored in this browser."
+  const title = view==="trash"?"Recycle bin":view==="favorites"?"Favorites":view==="recent"?"Recent":view==="docs"?"FluentFile Docs":view==="canvases"?"FluentFile Canvases":view==="slides"?"FluentFile Slides":view==="photos"?"FluentFile Photos":folderLabel(folderId);
+  const subtitle = view==="trash"?"Restore deleted files or permanently remove them.":view==="favorites"?"Your starred files in one place.":view==="recent"?"Your most recently changed files.":view==="docs"?"Create, edit, and organize your documents alongside your files.":view==="canvases"?"Draw, sketch, and export artwork from your browser.":view==="slides"?"Build, present, and export slide decks from your browser.":view==="photos"?"Browse, search, favorite, and download the photos stored on this device.":"Organize files and folders stored in this browser."
 
   return <FluentProvider theme={dark?webDarkTheme:webLightTheme}>
     <div className={s.app+" ff-app"}>
@@ -1594,6 +1686,7 @@ function App() {
           <Button className={s.navButton+" ff-nav-button ff-new-service "+(view==="docs"?s.navActive:"")} appearance="subtle" icon={<Document24Regular/>} onClick={()=>goView("docs")}><span className="ff-nav-text">Docs</span><span aria-hidden="true" className="ff-new-service-badge">NEW</span></Button>
           <Button className={s.navButton+" ff-nav-button ff-new-service "+(view==="canvases"?s.navActive:"")} appearance="subtle" icon={<PaintBrush24Regular/>} onClick={()=>goView("canvases")}><span className="ff-nav-text">Canvases</span><span aria-hidden="true" className="ff-new-service-badge">NEW</span></Button>
           <Button className={s.navButton+" ff-nav-button ff-new-service "+(view==="slides"?s.navActive:"")} appearance="subtle" icon={<AppsList24Regular/>} onClick={()=>goView("slides")}><span className="ff-nav-text">Slides</span><span aria-hidden="true" className="ff-new-service-badge">NEW</span></Button>
+          <Button className={s.navButton+" ff-nav-button ff-new-service "+(view==="photos"?s.navActive:"")} appearance="subtle" icon={<Image24Regular/>} onClick={()=>goView("photos")}><span className="ff-nav-text">Photos</span><span aria-hidden="true" className="ff-new-service-badge">NEW</span></Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="favorites"?s.navActive:"")} appearance="subtle" icon={<Star24Regular/>} onClick={()=>goView("favorites")}><span className="ff-nav-text">Favorites</span>{favCount>0&&<Badge size="small">{favCount}</Badge>}</Button>
           <Button className={s.navButton+" ff-nav-button "+(view==="trash"?s.navActive:"")} appearance="subtle" icon={<Delete24Regular/>} onClick={()=>goView("trash")}><span className="ff-nav-text">Recycle bin</span>{trashFiles.length>0&&<Badge size="small">{trashFiles.length}</Badge>}</Button>
         </nav></section>
@@ -1606,7 +1699,7 @@ function App() {
       </aside>
       <main className={s.main}>
         <header className={s.topbar+" ff-topbar"}>
-          <SearchBox ref={searchRef} className={s.search} placeholder="Search files and folders (Ctrl+K)" value={query} onChange={(_,data)=>{setSelectedIds([]);setQuery(data.value);}}/>
+          <SearchBox ref={searchRef} className={s.search} placeholder={view==="photos"?"Search photos (Ctrl+K)":"Search files and folders (Ctrl+K)"} value={query} onChange={(_,data)=>{setSelectedIds([]);setQuery(data.value);}}/>
           <div className={s.topRight}>
             <Text className={s.privacy}><ShieldCheckmark24Regular/><span className="ff-privacy-text">Stored locally</span></Text>
             <Button appearance="secondary" icon={<ArrowDownload24Regular/>} onClick={backup}>Backup</Button>
@@ -1617,11 +1710,12 @@ function App() {
         <div className={s.page+" ff-page"}>
           {storageError&&<MessageBar intent="error"><MessageBarBody><strong>Browser storage is unavailable. </strong>{storageError} Check your browser's site storage settings and reload.</MessageBarBody></MessageBar>}
           <div className={s.pageHead}>
-            <div className={s.titleBlock}><Caption1>WORKSPACE / {view==="files"?"MY FILES":view.toUpperCase()}</Caption1><div className="ff-workspace-title-row"><Title2>{title}</Title2>{(view==="docs"||view==="canvases"||view==="slides")&&<Badge size="small" color="informative">NEW</Badge>}</div><Body1>{subtitle}</Body1></div>
-            {(view==="files"||view==="docs"||view==="canvases"||view==="slides")&&<div className={s.actions}>
+            <div className={s.titleBlock}><Caption1>WORKSPACE / {view==="files"?"MY FILES":view.toUpperCase()}</Caption1><div className="ff-workspace-title-row"><Title2>{title}</Title2>{(view==="docs"||view==="canvases"||view==="slides"||view==="photos")&&<Badge size="small" color="informative">NEW</Badge>}</div><Body1>{subtitle}</Body1></div>
+            {(view==="files"||view==="docs"||view==="canvases"||view==="slides"||view==="photos")&&<div className={s.actions}>
               {(view==="files"||view==="docs")&&<Button appearance="secondary" icon={<Document24Regular/>} onClick={createDocument}>New document <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button>}
               {(view==="files"||view==="canvases")&&<Button appearance="secondary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>New canvas <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button>}
               {(view==="files"||view==="slides")&&<Button appearance="secondary" icon={<AppsList24Regular/>} onClick={createSlides}>New presentation <span className="ff-inline-new-tag">NEW</span></Button>}
+              {view==="photos"&&<><Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>photoInputRef.current?.click()}>Add photos</Button><input ref={photoInputRef} type="file" accept="image/*" multiple hidden onChange={event=>{addPhotos(event.target.files);event.target.value="";}}/></>}
               {view==="files"&&<><Button appearance="secondary" icon={<FolderAdd24Regular/>} onClick={()=>openEditor("new-folder")}>New folder</Button><Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>inputRef.current?.click()}>Upload files</Button><input ref={inputRef} type="file" multiple hidden onChange={e=>{addFiles(e.target.files);e.target.value="";}}/></>}
             </div>}
           </div>
@@ -1629,8 +1723,8 @@ function App() {
             <div className={s.dropMark}><ArrowUpload24Regular fontSize={22}/></div><div className={s.dropCopy+" ff-drop-copy"}><Text weight="semibold">Drop files here</Text><Caption1>or use Upload files. Everything stays in this browser.</Caption1></div><Button appearance="subtle" onClick={()=>inputRef.current?.click()}>Browse files</Button>
           </div>}
           {view==="files"&&<div className={s.breadcrumbs}><Button size="small" appearance="subtle" onClick={()=>{setQuery("");setRoute("files");}}>My files</Button>{folderPath.map(f=><React.Fragment key={f.id}><ChevronRight12Regular/><Button size="small" appearance="subtle" onClick={()=>{setQuery("");setRoute("folder/"+encodeURIComponent(f.id));}}>{f.name}</Button></React.Fragment>)}</div>}
-          <div className={s.contentBar}><Text size={200}>{shownFolders.length} folder{shownFolders.length===1?"":"s"} · {shownFiles.length} file{shownFiles.length===1?"":"s"}</Text><div className={s.controls}>
-{view!=="docs"&&view!=="canvases"&&view!=="slides"&&<Dropdown size="small" value={fileFilter==="all"?"All types":fileFilter==="image"?"Images":fileFilter==="documents"?"Documents":fileFilter==="video"?"Videos":fileFilter==="audio"?"Audio":"Other files"} selectedOptions={[fileFilter]} onOptionSelect={(_,data)=>{setSelectedIds([]);setFileFilter(data.optionValue||"all");}} aria-label="Filter by file type"><Option value="all">All types</Option><Option value="image">Images</Option><Option value="documents">Documents</Option><Option value="video">Videos</Option><Option value="audio">Audio</Option><Option value="other">Other files</Option></Dropdown>}
+          <div className={s.contentBar}><Text size={200}>{view==="photos"?shownFiles.length+" photo"+(shownFiles.length===1?"":"s"):shownFolders.length+" folder"+(shownFolders.length===1?"":"s")+" · "+shownFiles.length+" file"+(shownFiles.length===1?"":"s")}</Text><div className={s.controls}>
+{view!=="docs"&&view!=="canvases"&&view!=="slides"&&view!=="photos"&&<Dropdown size="small" value={fileFilter==="all"?"All types":fileFilter==="image"?"Images":fileFilter==="documents"?"Documents":fileFilter==="video"?"Videos":fileFilter==="audio"?"Audio":"Other files"} selectedOptions={[fileFilter]} onOptionSelect={(_,data)=>{setSelectedIds([]);setFileFilter(data.optionValue||"all");}} aria-label="Filter by file type"><Option value="all">All types</Option><Option value="image">Images</Option><Option value="documents">Documents</Option><Option value="video">Videos</Option><Option value="audio">Audio</Option><Option value="other">Other files</Option></Dropdown>}
             <Dropdown size="small" value={sortBy==="modified"?"Last modified":sortBy==="name"?"Name":"Size"} selectedOptions={[sortBy]} onOptionSelect={(_,data)=>setSortBy(data.optionValue||"modified")} aria-label="Sort files"><Option value="modified">Last modified</Option><Option value="name">Name</Option><Option value="size">Size</Option></Dropdown>
             <Toolbar aria-label="Display options"><ToolbarButton title="Grid view" aria-label="Grid view" icon={<Grid24Regular/>} appearance={layout==="grid"?"primary":"subtle"} onClick={()=>setLayout("grid")}/><ToolbarButton title="List view" aria-label="List view" icon={<AppsList24Regular/>} appearance={layout==="list"?"primary":"subtle"} onClick={()=>setLayout("list")}/></Toolbar>
           </div></div>
@@ -1650,19 +1744,22 @@ function App() {
             </div>
           </div>}
           {loading?<div className={s.empty}><Spinner label="Loading your files…"/></div>:<>
-            <div className={s.sections}>
+            {view==="photos"?<section className={"ff-photos-gallery"+(layout==="list"?" ff-photos-gallery-list":"")}>
+              {shownFiles.map(file=><FluentPhotoTile key={file.id} file={file} onOpen={openPhoto} onFavorite={item=>action("favorite",item)}/>)}
+            </section>:<div className={s.sections}>
               {shownFolders.length>0&&<section className={s.section}><Title3 className={s.sectionTitle}>Folders</Title3><div className={s.folderGrid}>{shownFolders.map(folder=><Card key={folder.id} className={s.folderCard}>
                 <div className={s.folderMark}><Folder24Regular fontSize={24}/></div><Button appearance="subtle" className={s.itemInfo} onClick={()=>setRoute("folder/"+encodeURIComponent(folder.id))}><Text weight="semibold" className={s.itemName}>{folder.name}</Text><Caption1>Folder · Open folder link</Caption1></Button>
                 <Menu><MenuTrigger disableButtonEnhancement><Button appearance="subtle" icon={<MoreHorizontal24Regular/>} aria-label={"Options for "+folder.name}/></MenuTrigger><MenuPopover><MenuList><MenuItem icon={<FolderOpen24Regular/>} onClick={()=>setRoute("folder/"+encodeURIComponent(folder.id))}>Open</MenuItem><MenuItem onClick={()=>copyLink("folder",folder)}>Copy folder link</MenuItem><MenuItem onClick={()=>downloadFolderZip(folder)}>Download folder as ZIP</MenuItem><MenuItem icon={<ArrowMove24Regular/>} onClick={()=>openEditor("move-folder",folder)}>Move folder</MenuItem><MenuItem icon={<Rename24Regular/>} onClick={()=>openEditor("rename-folder",folder)}>Rename</MenuItem><MenuItem icon={<Delete24Regular/>} onClick={()=>action("delete-folder",folder)}>Delete empty folder</MenuItem></MenuList></MenuPopover></Menu>
               </Card>)}</div></section>}
               {shownFiles.length>0&&<section className={s.section}><Title3 className={s.sectionTitle}>{view==="trash"?"Deleted files":shownFolders.length?"Files":"All files"}</Title3><div className={(layout==="list"?s.fileGrid+" "+s.fileGridList:s.fileGrid)+" ff-file-grid"}>{shownFiles.map(fileCard)}</div></section>}
-            </div>
-            {!shownFolders.length&&!shownFiles.length&&<div className={s.empty}><div className={s.emptyMark}>{view==="trash"?<Delete24Regular fontSize={30}/>:view==="favorites"?<Star24Regular fontSize={30}/>:view==="canvases"?<PaintBrush24Regular fontSize={30}/>:view==="slides"?<AppsList24Regular fontSize={30}/>:<FolderOpen24Regular fontSize={30}/>}</div>
-              <Title3>{query?"No matches found":view==="trash"?"Recycle bin is empty":view==="favorites"?"No favorites yet":view==="recent"?"No recent files":view==="docs"?"No documents yet":view==="canvases"?"No canvases yet":view==="slides"?"No presentations yet":"Start with your first file"}</Title3>
-              <Body1>{query?"Try another search or clear the search box.":view==="trash"?"Deleted files appear here so you can restore them.":view==="favorites"?"Use the star action on a file to keep it here.":view==="recent"?"Recently changed files will appear here.":view==="docs"?"Create your first document in FluentFile Docs.":view==="canvases"?"Create a blank canvas and start drawing, sketching, or planning.":view==="slides"?"Create your first presentation in FluentFile Slides.":"Upload files from your device or create a folder to stay organized."}</Body1>
+            </div>}
+            {!shownFolders.length&&!shownFiles.length&&<div className={s.empty}><div className={s.emptyMark}>{view==="trash"?<Delete24Regular fontSize={30}/>:view==="favorites"?<Star24Regular fontSize={30}/>:view==="canvases"?<PaintBrush24Regular fontSize={30}/>:view==="slides"?<AppsList24Regular fontSize={30}/>:view==="photos"?<Image24Regular fontSize={30}/>:<FolderOpen24Regular fontSize={30}/>}</div>
+              <Title3>{query?"No matches found":view==="trash"?"Recycle bin is empty":view==="favorites"?"No favorites yet":view==="recent"?"No recent files":view==="docs"?"No documents yet":view==="canvases"?"No canvases yet":view==="slides"?"No presentations yet":view==="photos"?"No photos yet":"Start with your first file"}</Title3>
+              <Body1>{query?"Try another search or clear the search box.":view==="trash"?"Deleted files appear here so you can restore them.":view==="favorites"?"Use the star action on a file to keep it here.":view==="recent"?"Recently changed files will appear here.":view==="docs"?"Create your first document in FluentFile Docs.":view==="canvases"?"Create a blank canvas and start drawing, sketching, or planning.":view==="slides"?"Create your first presentation in FluentFile Slides.":view==="photos"?"Add photos from your device to browse them in a private, local gallery.":"Upload files from your device or create a folder to stay organized."}</Body1>
               {view==="docs"&&!query&&<Button appearance="primary" icon={<Document24Regular/>} onClick={createDocument}>Create document <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button>}
               {view==="canvases"&&!query&&<Button appearance="primary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>Create canvas <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button>}
               {view==="slides"&&!query&&<Button appearance="primary" icon={<AppsList24Regular/>} onClick={createSlides}>Create presentation <span className="ff-inline-new-tag">NEW</span></Button>}
+              {view==="photos"&&!query&&<Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>photoInputRef.current?.click()}>Add photos</Button>}
               {view==="files"&&!query&&<div className={s.actions}><Button appearance="primary" icon={<ArrowUpload24Regular/>} onClick={()=>inputRef.current?.click()}>Upload files</Button><Button appearance="secondary" icon={<FolderAdd24Regular/>} onClick={()=>openEditor("new-folder")}>Create folder</Button><Button appearance="secondary" icon={<Document24Regular/>} onClick={createDocument}>Create document <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button><Button appearance="secondary" icon={<PaintBrush24Regular/>} onClick={createCanvas}>Create canvas <Badge size="small" color="informative" className="ff-inline-new-tag">NEW</Badge></Button><Button appearance="secondary" icon={<AppsList24Regular/>} onClick={createSlides}>Create presentation <span className="ff-inline-new-tag">NEW</span></Button></div>}
               {query&&<Button appearance="secondary" onClick={()=>setQuery("")}>Clear search</Button>}
             </div>}
@@ -1672,6 +1769,7 @@ function App() {
       </main>
     </div>
 
+    {view==="photos"&&photoViewerId&&(()=>{const index=shownFiles.findIndex(file=>file.id===photoViewerId);const file=index>=0?shownFiles[index]:null;return file?<FluentPhotoViewer file={file} index={index} count={shownFiles.length} onClose={closePhoto} onPrevious={()=>movePhotoViewer(-1)} onNext={()=>movePhotoViewer(1)} onFavorite={item=>action("favorite",item)} onDownload={download} onTrash={async item=>{closePhoto();await action("trash",item);}}/>:null;})()}
     {dialog&&dialog!=="preview"&&<Dialog open onOpenChange={(_,data)=>{if(!data.open)closeDialog();}}>
       <DialogSurface><DialogBody><DialogTitle>{dialog==="new-folder"?"Create a folder":dialog==="rename-folder"?"Rename folder":dialog==="rename-file"?"Rename file":dialog==="move-folder"?"Move folder":"Move file"}</DialogTitle>
         <DialogContent>

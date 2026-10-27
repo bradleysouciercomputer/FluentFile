@@ -298,7 +298,12 @@ html,body,#root{min-height:100%;margin:0}body{font-family:"Segoe UI",-apple-syst
 .ff-photo-viewer-file strong { max-width:min(45vw,520px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px; }
 .ff-photo-viewer-file span,.ff-photo-viewer-footer { color:rgba(255,255,255,.68);font-size:12px; }
 .ff-photo-viewer-actions { display:flex;align-items:center;gap:7px;flex-wrap:wrap; }
-.ff-photo-viewer-actions button { color:#fff; }
+.ff-photo-viewer-actions button,.ff-photo-viewer-nav {
+  color:#fff!important;
+  background:rgba(255,255,255,.12)!important;
+  border-color:rgba(255,255,255,.24)!important;
+}
+.ff-photo-viewer-actions button:hover,.ff-photo-viewer-nav:not(:disabled):hover { background:rgba(255,255,255,.22)!important; }
 .ff-photo-viewer-stage {
   position:relative;
   min-height:0;

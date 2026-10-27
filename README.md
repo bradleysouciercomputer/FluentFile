@@ -10,6 +10,7 @@ FluentFile is a browser-local file manager built with Microsoft's official **Flu
 - Create and edit rich-text documents inside the same file workspace.
 - FluentFile Canvases drawing workspace with pen, eraser, lines, rectangles, ellipses, text labels, color/background controls, brush sizing, grid toggle, undo/redo, autosave, and PNG or editable JSON export.
 - FluentFile Slides presentation workspace with editable slide titles and body content, title/content/quote/bullets layouts, slide reordering and duplication, undo/redo, speaker notes, themes, fullscreen presentation mode, validated JSON import, autosave, and HTML/JSON export.
+- FluentFile Photos image gallery for local photo uploads, responsive grid/list views, search and sorting, favorites, downloads, recycle-bin actions, and a keyboard-navigable photo viewer.
 - Search by name and filter by file type; sort by name, size, or modified date.
 - Grid and list layouts, previews, and downloads for common file types.
 - Select multiple files for bulk favorite, recycle-bin, restore, permanent-delete, or ZIP-download actions.

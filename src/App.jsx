@@ -184,7 +184,7 @@ const iconFor = file => {
     default: return <Document24Regular />;
   }
 };
-const mimeFor = name => ({txt:"text/plain",md:"text/markdown",csv:"text/csv",json:"application/json",xml:"application/xml",html:"text/html",htm:"text/html",css:"text/css",js:"text/javascript",pdf:"application/pdf",svg:"image/svg+xml"})[ext(name)] || "application/octet-stream";
+const mimeFor = name => ({txt:"text/plain",md:"text/markdown",csv:"text/csv",json:"application/json",xml:"application/xml",html:"text/html",htm:"text/html",css:"text/css",js:"text/javascript",pdf:"application/pdf",png:"image/png",jpg:"image/jpeg",jpeg:"image/jpeg",gif:"image/gif",webp:"image/webp",avif:"image/avif",bmp:"image/bmp",ico:"image/x-icon",svg:"image/svg+xml",tif:"image/tiff",tiff:"image/tiff"})[ext(name)] || "application/octet-stream";
 
 const useStyles = makeStyles({
   app:{minHeight:"100vh",display:"grid",gridTemplateColumns:"250px minmax(0,1fr)",backgroundColor:tokens.colorNeutralBackground2,color:tokens.colorNeutralForeground1},
